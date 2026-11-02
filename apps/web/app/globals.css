@@ -172,3 +172,9 @@ pre.body { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; font-si
   .langs { margin-left: auto; }
   .modal { max-height: 90vh; overflow-y: auto; }
 }
+.verified { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.verified li { display: flex; gap: 8px; align-items: flex-start; }
+.verified .tick { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.valuation { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; background: var(--surface-2); }
+.desc { white-space: pre-wrap; line-height: 1.65; margin: 0; }
+.uid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; background: var(--surface-2); padding: 1px 7px; border-radius: 6px; }

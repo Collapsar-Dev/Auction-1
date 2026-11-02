@@ -6,12 +6,21 @@ import { api } from '@/lib/api';
 import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 
-/** SC-05: модератор сверяет выписку с данными продавца и фото. */
+const CHECKS: [string, string][] = [
+  ['extract', 'Выписка из кадастра проверена (не старше 15 раб. дней) *'],
+  ['owner_match', 'Собственник в выписке = продавец, все собственники согласны *'],
+  ['no_encumbrance', 'Нет ареста и ипотеки без согласия банка'],
+  ['photos_match', 'Данные и фото соответствуют выписке'],
+  ['valuation', 'Отчёт об оценке проверен (если приложен)'],
+];
+
+/** SC-05: модератор сверяет выписку с данными продавца и фото. Отмеченные пункты видны покупателям. */
 export default function AdminLot() {
   const { id } = useParams<{ id: string }>();
   const { me } = useApp();
   const [d, setD] = useState<any>(null);
   const [comment, setComment] = useState('');
+  const [check, setCheck] = useState<Record<string, boolean>>({ extract: false, owner_match: false, no_encumbrance: false, photos_match: false, valuation: false });
   const [msg, setMsg] = useState('');
   const load = () => api('/admin/lots/' + id).then(setD).catch((e) => setMsg(e.code));
   useEffect(() => {
@@ -82,6 +91,19 @@ export default function AdminLot() {
             ))}
             <p className="small muted">Проверьте: собственник в выписке = продавец (все собственники согласны); нет ареста и ипотеки без согласия банка; данные и фото соответствуют выписке.</p>
           </div>
+          {d.valuations?.length > 0 && (
+            <div className="card stack">
+              <h3>Оценка (публично)</h3>
+              {d.valuations.map((v: any) => (
+                <div key={v.id} className="small">
+                  <b>{v.org_name}</b> · {fmtAmd(v.amount)} · {fmtDate(v.valued_at, { dateOnly: true })} · {v.report_no} ·{' '}
+                  <a href={v.url} target="_blank">
+                    отчёт
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="card">
             <h3>Фото ({d.photos.length})</h3>
             <div className="photo-grid">
@@ -96,7 +118,14 @@ export default function AdminLot() {
             <div className="card stack">
               <h3>Решение модератора</h3>
               <textarea className="input" placeholder="Комментарий (обязателен для возврата и отказа)" value={comment} onChange={(e) => setComment(e.target.value)} />
-              <button className="btn primary" onClick={() => run(`/admin/lots/${id}/moderate`, { decision: 'approve', comment })}>
+              <div className="stack small">
+                {CHECKS.map(([k, label]) => (
+                  <label key={k} className="check">
+                    <input type="checkbox" checked={!!check[k]} onChange={(e) => setCheck({ ...check, [k]: e.target.checked })} /> {label}
+                  </label>
+                ))}
+              </div>
+              <button className="btn primary" disabled={!check.extract || !check.owner_match} onClick={() => run(`/admin/lots/${id}/moderate`, { decision: 'approve', comment, checklist: check })}>
                 Одобрить → «Скоро»
               </button>
               <button className="btn" onClick={() => run(`/admin/lots/${id}/moderate`, { decision: 'return', comment })}>

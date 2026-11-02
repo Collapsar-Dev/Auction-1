@@ -9,6 +9,7 @@ import { Countdown } from '@/components/Countdown';
 import { StatusBadge } from '@/components/Shell';
 import { BidBlock } from '@/components/BidBlock';
 import { ResultTable } from '@/components/ResultTable';
+import { VerifiedDocs, Valuations } from '@/components/LotExtras';
 
 export default function LotPage() {
   const { id } = useParams<{ id: string }>();
@@ -115,10 +116,11 @@ export default function LotPage() {
           {desc && (
             <>
               <h3 style={{ marginTop: 16 }}>{t('description')}</h3>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{desc}</p>
+              <p className="desc">{desc}</p>
             </>
           )}
         </div>
+        <Valuations items={d.valuations} startPrice={lot.start_price} />
         {bbox && (
           <div className="card">
             <h3>
@@ -174,10 +176,11 @@ export default function LotPage() {
           )}
         </div>
         <BidBlock data={d} reload={load} />
+        <VerifiedDocs v={d.verification} />
         <div className="card">
           <h3>{t('rules_short')}</h3>
           <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
-            {[1, 2, 3, 4, 5].map((i) => (
+            {[1, 2, 3, 4, 5, 6].map((i) => (
               <li key={i}>{t('rules_short_' + i)}</li>
             ))}
           </ul>

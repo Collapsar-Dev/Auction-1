@@ -17,6 +17,7 @@ export interface RankRow {
   bidId: string;
   commitment: string;
   salt: string;
+  userId: number; // v0.2: публичный ID участника (показывается после итога)
 }
 
 /** SC-11…SC-13: вскрытие, итог, письма. */
@@ -90,7 +91,7 @@ export class RevealService {
       opened.sort((a, b) => b.amount - a.amount || a.ms - b.ms || a.bidId.localeCompare(b.bidId));
       opened.forEach((r, i) => (r.place = i + 1));
       for (const r of opened) await t.q('UPDATE bids SET amount=$2, salt=$3 WHERE id=$1', [r.bidId, r.amount, r.salt]);
-      const ranking: RankRow[] = opened.map(({ place, amount, at, bidId, commitment, salt }) => ({ place, amount, at, bidId, commitment, salt }));
+      const ranking: RankRow[] = opened.map(({ place, amount, at, bidId, commitment, salt, userId }) => ({ place, amount, at, bidId, commitment, salt, userId }));
       const winner = opened[0] ?? null;
       await t.q(`INSERT INTO lot_results(lot_id, ranking, winner_user_id, revealed_at) VALUES ($1,$2,$3,$4)`, [lotId, JSON.stringify(ranking), winner?.userId ?? null, now]);
       const web = process.env.WEB_URL || 'http://localhost:3000';
@@ -103,8 +104,10 @@ export class RevealService {
           winner.amount,
           new Date(now.getTime() + s.deal_confirm_hours * HOUR),
         ]);
-        // проигравшим и тем, кто внёс депозит без ставки, депозит освобождается сразу; у победителя — держится до сделки
-        await this.deposits.markReleasing(`lot_id=$1 AND user_id<>$2 AND status IN ('pending','held')`, [lotId, winner.userId], t);
+        // проигравшим и тем, кто внёс депозит без ставки, депозит освобождается сразу; у победителя — держится до сделки.
+        // v0.2: у 2-го места депозит держится, пока действует «второй шанс» (second_chance_days)
+        const runnerUp = s.second_chance_days > 0 ? opened[1]?.userId ?? 0 : 0;
+        await this.deposits.markReleasing(`lot_id=$1 AND user_id NOT IN ($2, $3) AND status IN ('pending','held')`, [lotId, winner.userId, runnerUp], t);
       } else {
         // R-12 / SC-13: ставок нет — аукцион без победителя
         await t.q(`UPDATE lots SET status='no_sale', ended_reason='no_bids', private_key_wrapped=NULL WHERE id=$1`, [lotId]);
@@ -117,7 +120,7 @@ export class RevealService {
       const langOf = (id: number) => users.find((u) => u.id === id)?.lang ?? 'hy';
       const table = (lang: Lang, me?: string) =>
         ranking
-          .map((r) => `${r.place}. ${fmtAmd(r.amount)} — ${phrase('participant', lang)} ${r.place} — ${fmtYerevan(r.at, true)}${r.place === 1 ? ' (' + phrase('winner', lang) + ')' : ''}${r.bidId === me ? ' ← ' + phrase('you', lang) : ''}`)
+          .map((r) => `${r.place}. ${fmtAmd(r.amount)} — ${s.results_show_user_ids ? 'ID ' + r.userId : phrase('participant', lang) + ' ' + r.place} — ${fmtYerevan(r.at, true)}${r.place === 1 ? ' (' + phrase('winner', lang) + ')' : ''}${r.bidId === me ? ' ← ' + phrase('you', lang) : ''}`)
           .join('\n');
       const dealLink = `${web}/deals/${lotId}`;
       if (!winner) {
@@ -125,7 +128,12 @@ export class RevealService {
       } else {
         for (const o of opened) {
           const lang = langOf(o.userId);
-          const extra = o.place === 1 ? phrase('extra_winner', lang, { hours: s.deal_confirm_hours, link: dealLink }) : phrase('extra_loser', lang);
+          const extra =
+            o.place === 1
+              ? phrase('extra_winner', lang, { hours: s.deal_confirm_hours, link: dealLink })
+              : o.place === 2 && s.second_chance_days > 0
+                ? phrase('extra_runner_up', lang, { days: s.second_chance_days })
+                : phrase('extra_loser', lang);
           await this.notify.queue(
             o.userId,
             'email',

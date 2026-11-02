@@ -42,6 +42,10 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
           </Link>
         </div>
       )}
+      {result.secondChance?.transferred && <div className="notice warn">{t('second_chance_done')}</div>}
+      {result.bids.length > 1 && result.secondChance?.days > 0 && !result.secondChance.transferred && (
+        <div className="notice">{t('second_chance_note', { days: result.secondChance.days, until: fmtDate(result.secondChance.until) })}</div>
+      )}
       {result.bids.length === 0 ? (
         <p className="muted">{t('no_bids')}</p>
       ) : (
@@ -50,6 +54,7 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
             <thead>
               <tr>
                 <th>{t('place')}</th>
+                <th>{t('participant_id')}</th>
                 <th>{t('amount')}</th>
                 <th>{t('time')}</th>
                 <th></th>
@@ -58,13 +63,12 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
             <tbody>
               {result.bids.map((b: any) => (
                 <tr key={b.bidId} className={(b.isMe ? 'me ' : '') + (b.isWinner ? 'win' : '')}>
-                  <td>
-                    {t('participant')} {b.label}
-                  </td>
+                  <td>{b.place}</td>
+                  <td>{b.userId ? <span className="uid">ID {b.userId}</span> : `${t('participant')} ${b.label}`}</td>
                   <td>{fmtAmd(b.amount)}</td>
                   <td className="small">{fmtDate(b.at, { ms: true })}</td>
                   <td className="small">
-                    {b.isWinner && <span className="badge finished">{t('winner')}</span>} {b.isMe && <span className="badge revealing">{t('this_is_you')}</span>}{' '}
+                    {b.isWinner && <span className="badge finished">{t('winner')}</span>} {b.isBuyer && !b.isWinner && <span className="badge live">{t('buyer_now')}</span>} {b.isMe && <span className="badge revealing">{t('this_is_you')}</span>}{' '}
                     {b.bidId in checks && <span className={checks[b.bidId] ? 'ok' : 'error'}>{checks[b.bidId] ? '✓' : '✗'}</span>}
                   </td>
                 </tr>
@@ -74,8 +78,7 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
         </div>
       )}
       <p className="muted small">
-        {t('revealing').slice(0, 0)}
-        {fmtDate(result.revealedAt, { ms: true })}
+        {t('results')}: {fmtDate(result.revealedAt, { ms: true })}
       </p>
       {result.bids.length > 0 && (
         <details>

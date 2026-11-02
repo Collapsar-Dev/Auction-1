@@ -44,8 +44,10 @@ export class AdminController {
   @Post('lots/:id/moderate')
   async moderate(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() r: Request) {
     const s = await this.auth.staff(r);
-    const v = z.object({ decision: z.enum(['approve', 'return', 'reject']), comment: z.string().max(2000).optional().default('') }).parse(b);
-    return this.lots.moderate(s, id, v.decision, v.comment);
+    const v = z
+      .object({ decision: z.enum(['approve', 'return', 'reject']), comment: z.string().max(2000).optional().default(''), checklist: z.record(z.string(), z.boolean()).optional().default({}) })
+      .parse(b);
+    return this.lots.moderate(s, id, v.decision, v.comment, v.checklist);
   }
   @Post('lots/:id/withdraw')
   async withdraw(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() r: Request) {

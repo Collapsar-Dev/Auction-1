@@ -123,6 +123,16 @@ export const TEMPLATES: Record<string, Tpl> = {
     ru: { s: 'Сделка завершена: лот #{lotId}', b: 'Лот отмечен как «Продано». {extra}' },
     en: { s: 'Deal completed: lot #{lotId}', b: 'The lot is marked as sold. {extra}' },
   },
+  lot_offered_second: {
+    hy: { s: 'Լոտ #{lotId}-ը առաջարկվում է ձեզ', b: 'Հաղթողը հրաժարվեց։ Լոտը առաջարկվում է ձեզ՝ ձեր հայտի գնով {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
+    ru: { s: 'Лот #{lotId} предложен вам', b: 'Победитель отказался от сделки. Лот переходит к вам по вашей ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
+    en: { s: 'Lot #{lotId} is offered to you', b: 'The winner refused. The lot passes to you at your bid of {amount}. Confirm the deal within {hours} h: {link}' },
+  },
+  lot_passed_second_seller: {
+    hy: { s: 'Լոտ #{lotId}՝ գործարքը երկրորդ տեղի հետ', b: 'Հաղթողը հրաժարվեց։ Լոտն անցնում է երկրորդ տեղի մասնակցին՝ {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
+    ru: { s: 'Лот #{lotId}: сделка со 2-м местом', b: 'Победитель отказался. Лот переходит участнику со 2-го места по его ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
+    en: { s: 'Lot #{lotId}: deal with 2nd place', b: 'The winner refused. The lot passes to the 2nd-place bidder at {amount}. Confirm the deal within {hours} h: {link}' },
+  },
   commission_charged: {
     hy: { s: 'Միջնորդավճարը գանձված է', b: 'Լոտ #{lotId}-ի համար գանձվել է {amount}։ Կտրոն №{receiptNo}' },
     ru: { s: 'Комиссия списана', b: 'По лоту #{lotId} списано {amount}. Чек №{receiptNo}' },
@@ -196,6 +206,11 @@ export const PHRASES: Record<string, Record<Lang, string>> = {
   intro_seller: { hy: 'Ձեր լոտի աճուրդն ավարտվել է։ Հաղթող հայտ՝ {amount}։', ru: 'Аукцион по вашему лоту завершён. Победная ставка: {amount}.', en: 'The auction for your lot has ended. Winning bid: {amount}.' },
   extra_winner: { hy: 'Դուք հաղթեցիք։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}', ru: 'Вы выиграли! Подтвердите сделку в течение {hours} ч: {link}', en: 'You won! Confirm the deal within {hours} h: {link}' },
   extra_loser: { hy: 'Ձեր ավանդն ազատվում է։ Վերադարձի ժամկետը կախված է ձեր բանկից։', ru: 'Ваш депозит освобождается. Срок возврата денег на карту зависит от вашего банка.', en: 'Your deposit is being released. The timing depends on your bank.' },
+  extra_runner_up: {
+    hy: 'Դուք երկրորդ տեղում եք։ Եթե հաղթողը {days} օրվա ընթացքում հրաժարվի, լոտը կառաջարկվի ձեզ՝ ձեր հայտի գնով։ Մինչ այդ ձեր ավանդը մնում է արգելափակված։',
+    ru: 'Вы на 2-м месте. Если победитель откажется в течение {days} дней, лот будет предложен вам по вашей ставке. До этого ваш депозит остаётся заблокированным.',
+    en: 'You are in 2nd place. If the winner refuses within {days} days, the lot will be offered to you at your bid. Until then your deposit stays held.',
+  },
   extra_seller: { hy: 'Խնդրում ենք հաստատել գործարքը {hours} ժամվա ընթացքում՝ {link}', ru: 'Пожалуйста, подтвердите сделку в течение {hours} ч: {link}', en: 'Please confirm the deal within {hours} h: {link}' },
 };
 export const phrase = (k: string, lang: Lang, payload: Record<string, unknown> = {}) =>

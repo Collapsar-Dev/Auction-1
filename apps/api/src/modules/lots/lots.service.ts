@@ -57,6 +57,10 @@ const PROPERTY_COLS = [
   'description_i18n', 'land_area_m2', 'floors', 'wall_material', 'gas', 'water', 'sewage', 'floor', 'building_floors', 'building_type', 'has_elevator', 'has_balcony', 'parking',
 ];
 
+/** Что модератор отмечает при одобрении (SC-05). */
+export const VERIFICATION_KEYS = ['extract', 'owner_match', 'no_encumbrance', 'photos_match', 'valuation'] as const;
+export type VerificationKey = (typeof VERIFICATION_KEYS)[number];
+
 const PUBLIC_STATUSES = ['scheduled', 'live', 'revealing', 'finished', 'no_sale', 'sold'];
 
 @Injectable()
@@ -157,6 +161,43 @@ export class LotsService {
     return { id: m.id };
   }
 
+  /** v0.2: оценка объекта независимой организацией — название, сумма, дата и документ. */
+  async addValuation(user: User, lotId: number, body: { org_name?: string; amount?: unknown; valued_at?: string; report_no?: string }, file?: { buffer: Buffer; mimetype: string }) {
+    const lot = await this.ownDraft(user, lotId);
+    const v = z
+      .object({
+        org_name: z.string().trim().min(2).max(200),
+        amount: z.coerce.number().int().positive().max(1e13),
+        valued_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        report_no: z.string().trim().max(100).optional(),
+      })
+      .parse(body);
+    if (new Date(v.valued_at).getTime() > this.clock.ms()) fail('VALUATION_DATE_INVALID');
+    if (!file) fail('FILE_REQUIRED');
+    if (!/^(application\/pdf|image\/(jpeg|png))$/.test(file!.mimetype)) fail('FILE_TYPE');
+    // отчёт об оценке публичен на странице лота — продавец сам его прикладывает
+    const key = this.storage.put(file!.buffer, file!.mimetype === 'application/pdf' ? 'pdf' : file!.mimetype.split('/')[1].replace('jpeg', 'jpg'), false);
+    const r = await this.db.one(`INSERT INTO property_valuations(property_id, org_name, amount, valued_at, report_no, storage_key, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [
+      lot.property_id,
+      v.org_name,
+      v.amount,
+      v.valued_at,
+      v.report_no || null,
+      key,
+      this.clock.now(),
+    ]);
+    return { id: r.id };
+  }
+  async removeValuation(user: User, lotId: number, id: number) {
+    const lot = await this.ownDraft(user, lotId);
+    await this.db.q('DELETE FROM property_valuations WHERE id=$1 AND property_id=$2', [id, lot.property_id]);
+    return { ok: true };
+  }
+  async valuations(propertyId: number) {
+    const rows = await this.db.q(`SELECT id, org_name, amount, valued_at, report_no, storage_key FROM property_valuations WHERE property_id=$1 ORDER BY valued_at DESC, id DESC`, [propertyId]);
+    return rows.map((v) => ({ id: v.id, orgName: v.org_name, amount: v.amount, valuedAt: v.valued_at, reportNo: v.report_no, documentUrl: this.storage.publicUrl(v.storage_key) }));
+  }
+
   async removeMedia(user: User, lotId: number, mediaId: number) {
     const lot = await this.ownDraft(user, lotId);
     await this.db.q('DELETE FROM property_media WHERE id=$1 AND property_id=$2', [mediaId, lot.property_id]);
@@ -176,6 +217,7 @@ export class LotsService {
       property: prop,
       photos: media.filter((m) => m.kind === 'photo').map((m) => ({ id: m.id, url: this.storage.publicUrl(m.storage_key) })),
       extracts: media.filter((m) => m.kind === 'extract').map((m) => ({ id: m.id })),
+      valuations: await this.valuations(lot.property_id),
       moderation: mod,
       preview: lot.start_price
         ? { deposit: depositFor(lot.start_price, s), commission: commissionFor(lot.start_price, s), suggestedPlan: (await this.plans.suggestFor(lot.start_price))?.code ?? null }
@@ -228,11 +270,13 @@ export class LotsService {
   }
 
   // ---------------- Модерация (SC-05) ----------------
-  async moderate(staff: User, lotId: number, decision: 'approve' | 'return' | 'reject', comment: string) {
+  async moderate(staff: User, lotId: number, decision: 'approve' | 'return' | 'reject', comment: string, checklist: Partial<Record<VerificationKey, boolean>> = {}) {
     const lot = await this.db.maybe(`SELECT * FROM lots WHERE id=$1`, [lotId]);
     if (!lot) fail('LOT_NOT_FOUND', 404);
     if (lot.status !== 'moderation') fail('LOT_NOT_IN_MODERATION');
     if (decision !== 'approve' && !comment) fail('COMMENT_REQUIRED');
+    // SC-05: без проверки выписки и совпадения собственника одобрить нельзя
+    if (decision === 'approve' && !(checklist.extract && checklist.owner_match)) fail('CHECKLIST_REQUIRED', 400, { required: ['extract', 'owner_match'] });
     const now = this.clock.now();
     if (decision === 'approve') {
       try {
@@ -252,8 +296,16 @@ export class LotsService {
         const keys = generateLotKeys(); // 7.4.1: пара ключей создаётся при одобрении
         const snapshot = { ...s, consent_versions: undefined, auction_type: 'type1', captured_at: now.toISOString() };
         await t.q(
-          `UPDATE lots SET status='scheduled', approved_at=$2, public_key=$3, private_key_wrapped=$4, rules_snapshot=$5, deposit_amount=$6, version=version+1 WHERE id=$1`,
-          [lotId, now, keys.publicKey, this.kms.wrap(lotId, keys.privateKey), JSON.stringify(snapshot), depositFor(lot.start_price, s)],
+          `UPDATE lots SET status='scheduled', approved_at=$2, public_key=$3, private_key_wrapped=$4, rules_snapshot=$5, deposit_amount=$6, verification=$7, version=version+1 WHERE id=$1`,
+          [
+            lotId,
+            now,
+            keys.publicKey,
+            this.kms.wrap(lotId, keys.privateKey),
+            JSON.stringify(snapshot),
+            depositFor(lot.start_price, s),
+            JSON.stringify({ ...Object.fromEntries(VERIFICATION_KEYS.map((k) => [k, !!checklist[k]])), checked_at: now.toISOString() }),
+          ],
         );
       } else {
         await t.q(`UPDATE lots SET status=$2 WHERE id=$1`, [lotId, decision === 'return' ? 'needs_changes' : 'rejected']);
@@ -305,6 +357,10 @@ export class LotsService {
       const p = await t.one(`INSERT INTO properties(owner_id, ${cols}) SELECT owner_id, ${cols} FROM properties WHERE id=$1 RETURNING id`, [lot.property_id]);
       await t.q(
         `INSERT INTO property_media(property_id, kind, storage_key, is_private, sort, uploaded_at) SELECT $2, kind, storage_key, is_private, sort, uploaded_at FROM property_media WHERE property_id=$1 AND kind='photo'`,
+        [lot.property_id, p.id],
+      );
+      await t.q(
+        `INSERT INTO property_valuations(property_id, org_name, amount, valued_at, report_no, storage_key, created_at) SELECT $2, org_name, amount, valued_at, report_no, storage_key, created_at FROM property_valuations WHERE property_id=$1`,
         [lot.property_id, p.id],
       );
       const nl = await t.one(`INSERT INTO lots(property_id, seller_id, status, draft_step, relaunched_from, created_at) VALUES ($1,$2,'draft',3,$3,$4) RETURNING id`, [
@@ -414,6 +470,8 @@ export class LotsService {
         : null,
       isSeller: !!isOwner,
       isFavorite: viewer ? !!(await this.db.maybe('SELECT 1 FROM favorites WHERE user_id=$1 AND lot_id=$2', [viewer.id, lotId])) : false,
+      valuations: await this.valuations(l.property_id),
+      verification: await this.verificationOf(l),
     };
     if (viewer && !isOwner && ['scheduled', 'live'].includes(status)) {
       out.steps = await this.elig.steps(viewer, l);
@@ -437,16 +495,57 @@ export class LotsService {
     return out;
   }
 
-  /** R-09: после конца — все ставки открыты всем, имена скрыты, «Это вы» — у самого участника. */
+  /** Блок «Документы проверены»: что сверил модератор при одобрении и проверка личности продавца. */
+  private async verificationOf(l: any) {
+    if (!l.approved_at) return null;
+    const seller = await this.db.one<{ kyc_status: string }>('SELECT kyc_status FROM users WHERE id=$1', [l.seller_id]);
+    const v = l.verification || {};
+    return {
+      checkedAt: v.checked_at ?? l.approved_at,
+      items: [{ key: 'seller_kyc', ok: seller.kyc_status === 'verified' }, ...VERIFICATION_KEYS.map((k) => ({ key: k, ok: !!v[k] }))],
+    };
+  }
+
+  /**
+   * R-09: после конца — все ставки открыты всем; «Это вы» — у самого участника.
+   * v0.2: рядом со ставкой показывается публичный ID участника (настройка results_show_user_ids);
+   * если победитель отказался — видно, что лот перешёл 2-му месту.
+   */
   async result(lotId: number, viewer: User | null) {
     const r = await this.db.maybe<{ ranking: any[]; winner_user_id: number | null; revealed_at: Date }>('SELECT * FROM lot_results WHERE lot_id=$1', [lotId]);
     if (!r) return null;
+    const s = await this.settings.all();
     const myBid = viewer ? await this.db.maybe<{ id: string }>('SELECT id FROM bids WHERE lot_id=$1 AND user_id=$2', [lotId, viewer.id]) : null;
+    const deal = await this.db.maybe<{ winner_user_id: number; round: number; status: string; transferred_at: Date | null }>(
+      'SELECT winner_user_id, round, status, transferred_at FROM deals WHERE lot_id=$1',
+      [lotId],
+    );
+    const buyerBid = deal ? r.ranking.find((x: any) => x.userId === deal.winner_user_id)?.bidId : null;
+    const showIds = !!s.results_show_user_ids;
     return {
       revealedAt: r.revealed_at,
-      bids: r.ranking.map((x: any) => ({ place: x.place, label: x.place, amount: x.amount, at: x.at, isWinner: x.place === 1, isMe: !!myBid && myBid.id === x.bidId, commitment: x.commitment, salt: x.salt, bidId: x.bidId })),
+      bids: r.ranking.map((x: any) => ({
+        place: x.place,
+        label: x.place,
+        userId: showIds ? x.userId ?? null : null,
+        amount: x.amount,
+        at: x.at,
+        isWinner: x.place === 1,
+        isBuyer: !!buyerBid && x.bidId === buyerBid,
+        isMe: !!myBid && myBid.id === x.bidId,
+        commitment: x.commitment,
+        salt: x.salt,
+        bidId: x.bidId,
+      })),
       hasWinner: r.winner_user_id !== null,
-      youWon: !!viewer && r.winner_user_id === viewer.id,
+      youWon: !!viewer && !!deal && deal.winner_user_id === viewer.id && !['buyer_failed', 'seller_failed', 'invalidated'].includes(deal.status),
+      secondChance: {
+        days: s.second_chance_days,
+        until: s.second_chance_days ? new Date(new Date(r.revealed_at).getTime() + s.second_chance_days * DAY) : null,
+        transferred: deal?.round === 2,
+        transferredAt: deal?.transferred_at ?? null,
+      },
     };
   }
+
 }

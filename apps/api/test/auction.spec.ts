@@ -235,15 +235,19 @@ describe('SC-11 / SC-12 / R-09 / R-10 Вскрытие и итог', () => {
     expect(asA.body.bids.find((b: any) => b.isMe).place).toBe(1);
     const asC = await (await h.fresh(C.agent)).get(`/api/lots/${lot}/result`);
     expect(asC.body.bids.find((b: any) => b.isMe).place).toBe(2);
-    // имён в итоге нет
-    expect(JSON.stringify(res.body)).not.toMatch(/Test User/);
+    // имён и телефонов в итоге нет, но есть публичный ID участника (v0.2)
+    expect(JSON.stringify(res.body)).not.toMatch(/Test User|\+374/);
+    expect(res.body.bids.map((b: any) => b.userId)).toEqual([A.id, C.id, B.id]);
+    expect((await h.outbox(B.id, 'results'))[0].body).toContain('ID ' + A.id);
     const deal = await h.db.one(`SELECT * FROM deals WHERE lot_id=$1`, [lot]);
     expect(deal).toMatchObject({ winner_user_id: A.id, amount: 43_500_000, status: 'awaiting_confirm' });
     // депозиты проигравших и не ставившего освобождены, у победителя — держится
     const deps = await h.db.q(`SELECT user_id, status FROM deposits WHERE lot_id=$1`, [lot]);
     const st = Object.fromEntries(deps.map((d) => [d.user_id, d.status]));
     expect(st[A.id]).toBe('held');
-    expect([st[B.id], st[C.id], st[watcher.id]]).toEqual(['released', 'released', 'released']);
+    // v0.2: у 2-го места (C) депозит держится, пока действует «второй шанс»
+    expect([st[B.id], st[C.id], st[watcher.id]]).toEqual(['released', 'held', 'released']);
+    expect((await h.outbox(C.id, 'results'))[0].body).toContain('2-м месте');
     // письма: каждому участнику и продавцу + SMS-дубль
     for (const u of [A, B, C, seller]) {
       expect((await h.outbox(u.id, 'results')).length).toBe(1);

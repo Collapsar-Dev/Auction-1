@@ -69,8 +69,11 @@ describe('SC-05 Модерация', () => {
   it('одобрить → «Скоро», создаются ключи и снимок правил; вернуть/отклонить — с комментарием', async () => {
     const adm = await h.staff();
     const a = await submitted();
-    await adm.post(`/api/admin/lots/${a.id}/moderate`).send({ decision: 'approve' }).expect(201);
-    const l = await h.db.one(`SELECT status, public_key, private_key_wrapped, rules_snapshot FROM lots WHERE id=$1`, [a.id]);
+    // без отметок «выписка проверена» и «собственник совпадает» одобрить нельзя
+    expect((await adm.post(`/api/admin/lots/${a.id}/moderate`).send({ decision: 'approve' })).body.error).toBe('CHECKLIST_REQUIRED');
+    await adm.post(`/api/admin/lots/${a.id}/moderate`).send({ decision: 'approve', checklist: { extract: true, owner_match: true, no_encumbrance: true } }).expect(201);
+    const l = await h.db.one(`SELECT status, public_key, private_key_wrapped, rules_snapshot, verification FROM lots WHERE id=$1`, [a.id]);
+    expect(l.verification).toMatchObject({ extract: true, owner_match: true, no_encumbrance: true, photos_match: false });
     expect(l.status).toBe('scheduled');
     expect(l.public_key).toContain('PUBLIC KEY');
     expect(l.private_key_wrapped).not.toContain('PRIVATE KEY');
@@ -85,7 +88,7 @@ describe('SC-05 Модерация', () => {
     const adm = await h.staff();
     const a = await submitted();
     await h.db.q(`UPDATE lots SET opens_at=$2 WHERE id=$1`, [a.id, new Date(h.clock.ms() + 10 * HOUR)]);
-    const r = await adm.post(`/api/admin/lots/${a.id}/moderate`).send({ decision: 'approve' }).expect(201);
+    const r = await adm.post(`/api/admin/lots/${a.id}/moderate`).send({ decision: 'approve', checklist: { extract: true, owner_match: true } }).expect(201);
     expect(r.body.status).toBe('needs_changes');
     expect(r.body.comment).toMatch(/^START_TOO_SOON/);
   });
@@ -162,8 +165,43 @@ describe('SC-14 / SC-15 Сделка и комиссия', () => {
 });
 
 describe('SC-16 / 6A.3 Победитель отказался или молчит 48 ч', () => {
-  it('лот «не состоялся», депозит спорный до решения админа, лестница мер: 30 дней → 180 → бессрочно', async () => {
-    const { lot, win } = await wonLot();
+  it('v0.2 «второй шанс»: отказ в течение 5 дней → лот переходит 2-му месту по его ставке', async () => {
+    const { seller, lot, win, lose } = await wonLot();
+    await win.agent.post(`/api/deals/${lot}/decline`).send({ reason: 'передумал' }).expect(201);
+    const d = await h.db.one(`SELECT * FROM deals WHERE lot_id=$1`, [lot]);
+    expect(d).toMatchObject({ winner_user_id: lose.id, amount: 41_000_000, round: 2, prev_winner_user_id: win.id, status: 'awaiting_confirm' });
+    expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('finished');
+    expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, win.id])).status).toBe('disputed');
+    expect((await h.outbox(lose.id, 'lot_offered_second')).length).toBe(2); // email + SMS
+    expect((await h.outbox(seller.id, 'lot_passed_second_seller')).length).toBe(1);
+    // новый покупатель видит «Вы выиграли» и подтверждает
+    const res = await (await h.fresh(lose.agent)).get(`/api/lots/${lot}/result`);
+    expect(res.body).toMatchObject({ youWon: true, secondChance: { transferred: true, days: 5 } });
+    expect(res.body.bids.find((b: any) => b.isBuyer).userId).toBe(lose.id);
+    await lose.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(lose.agent, 'deal_confirm')).expect(201);
+    // если и 2-е место отказывается — лот «не состоялся» (третьему месту не передаётся)
+    await lose.agent.post(`/api/deals/${lot}/decline`).send({ reason: 'нет денег' }).expect(201);
+    expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('no_sale');
+  });
+
+  it('после 5 дней «второго шанса» нет: депозит 2-го места освобождается, отказ → лот «не состоялся»', async () => {
+    const { seller, lot, win, lose } = await wonLot();
+    await win.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(win.agent, 'deal_confirm'));
+    await seller.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(seller.agent, 'deal_confirm'));
+    h.advance(5 * DAY + 1000);
+    await h.deals().tick();
+    expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, lose.id])).status).toBe('released');
+    await (await h.fresh(win.agent)).post(`/api/deals/${lot}/decline`).send({ reason: 'поздно' }).expect(201);
+    expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('no_sale');
+  });
+
+  it('молчание 48 ч без 2-го места: лот «не состоялся», депозит спорный, лестница мер 30 → 180 дней → бессрочно', async () => {
+    const seller = await h.user({ card: '4111111111119993' });
+    const lot = await h.lot(seller.id, { closesIn: HOUR });
+    const win = await h.bidder(lot);
+    await h.bid(win.agent, lot, 45_000_000);
+    h.advance(HOUR);
+    await h.reveal().revealDue();
     h.advance(48 * HOUR + 1000);
     await h.deals().tick();
     expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('no_sale');
@@ -171,22 +209,43 @@ describe('SC-16 / 6A.3 Победитель отказался или молчи
     const s1 = await h.db.one(`SELECT * FROM sanctions WHERE user_id=$1`, [win.id]);
     expect(s1.strike_no).toBe(1);
     expect(new Date(s1.ends_at).getTime() - new Date(s1.starts_at).getTime()).toBe(30 * DAY);
-    // новые ставки заблокированы
     const seller2 = await h.user();
     const lot2 = await h.lot(seller2.id);
     await h.fresh(win.agent);
     expect((await h.deposit(win.agent, lot2)).body.error).toBe('BIDDING_BLOCKED');
-    // администратор решает судьбу депозита (Q-01)
     const dep = await h.db.one(`SELECT id FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, win.id]);
     const adm = await h.staff();
     await adm.post(`/api/admin/deposits/${dep.id}/decide`).send({ action: 'release', reason: 'Юрист: удержание не разрешено' }).expect(201);
     expect((await h.db.one(`SELECT status FROM deposits WHERE id=$1`, [dep.id])).status).toBe('released');
-    // лестница: 2-й и 3-й случай
     const { RiskService } = await import('../src/modules/risk/risk.service');
     const r2 = await h.db.tx((t) => h.get(RiskService).strike(win.id, lot, 'second', t));
     expect(r2).toMatchObject({ strike: 2, kind: 'bid_block' });
     const r3 = await h.db.tx((t) => h.get(RiskService).strike(win.id, lot, 'third', t));
     expect(r3).toMatchObject({ strike: 3, kind: 'permanent', ends: null });
+  });
+});
+
+describe('v0.2 Оценка и проверенные документы на странице лота', () => {
+  it('продавец прикладывает оценку (организация, сумма, дата, документ); на карточке — оценка и что проверил модератор', async () => {
+    const s = await h.user({ card: '4111111111117773' });
+    const id = (await s.agent.post('/api/lots')).body.id;
+    const bad = await s.agent.post(`/api/lots/${id}/valuations`).field('org_name', 'ArmEval LLC').field('amount', '52000000').field('valued_at', '2026-11-10');
+    expect(bad.body.error).toBe('FILE_REQUIRED');
+    await s.agent
+      .post(`/api/lots/${id}/valuations`)
+      .field('org_name', 'ArmEval LLC')
+      .field('amount', '52000000')
+      .field('valued_at', '2026-11-10')
+      .field('report_no', 'R-77')
+      .attach('file', Buffer.from('%PDF report'), { filename: 'r.pdf', contentType: 'application/pdf' })
+      .expect(201);
+    await h.db.q(`UPDATE lots SET status='moderation', start_price=45000000, opens_at=$2, closes_at=$3 WHERE id=$1`, [id, new Date(h.clock.ms() + 2 * DAY), new Date(h.clock.ms() + 7 * DAY)]);
+    await (await h.staff()).post(`/api/admin/lots/${id}/moderate`).send({ decision: 'approve', checklist: { extract: true, owner_match: true, no_encumbrance: true, photos_match: true, valuation: true } }).expect(201);
+    const card = await request(h.http).get(`/api/lots/${id}`).expect(200);
+    expect(card.body.valuations).toEqual([expect.objectContaining({ orgName: 'ArmEval LLC', amount: 52_000_000, reportNo: 'R-77' })]);
+    expect(card.body.verification.items.every((i: any) => i.ok)).toBe(true);
+    const doc = await request(h.http).get(card.body.valuations[0].documentUrl).expect(200);
+    expect(doc.headers['content-type']).toContain('pdf');
   });
 });
 

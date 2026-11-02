@@ -252,6 +252,7 @@ export default function Wizard() {
             <h3>{t('extract')}</h3>
             <div className="small">{d.extracts.length ? `✓ ${d.extracts.length}` : '—'}</div>
             <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => upload(e.target.files, 'extract')} />
+            <ValuationForm lotId={id} items={d.valuations} editable={editable} onChange={() => load(3)} />
             <Nav onBack={() => setStep(2)} onNext={() => save(3)} busy={busy} />
           </div>
         )}
@@ -377,3 +378,77 @@ const Chk = ({ label, v, on }: { label: string; v: any; on: any }) => (
     <input type="checkbox" checked={!!v} onChange={on} /> {label}
   </label>
 );
+
+/** v0.2: оценка независимой организацией — название, сумма, дата, номер отчёта и файл. */
+function ValuationForm({ lotId, items, editable, onChange }: { lotId: string; items: any[]; editable: boolean; onChange: () => void }) {
+  const { t, tErr } = useApp();
+  const [f, setF] = useState({ org_name: '', amount: '', valued_at: '', report_no: '' });
+  const [file, setFile] = useState<File | null>(null);
+  const [err, setErr] = useState('');
+  const add = async () => {
+    setErr('');
+    const fd = new FormData();
+    Object.entries(f).forEach(([k, v]) => v && fd.append(k, k === 'amount' ? v.replace(/\D/g, '') : v));
+    if (file) fd.append('file', file);
+    try {
+      await api(`/lots/${lotId}/valuations`, { method: 'POST', form: fd });
+      setF({ org_name: '', amount: '', valued_at: '', report_no: '' });
+      setFile(null);
+      onChange();
+    } catch (e) {
+      setErr(tErr(e));
+    }
+  };
+  const remove = async (id: number) => {
+    await api(`/lots/${lotId}/valuations/${id}`, { method: 'DELETE' });
+    onChange();
+  };
+  return (
+    <div className="stack">
+      <h3>{t('valuation_title')}</h3>
+      <p className="small muted">{t('valuation_optional')}</p>
+      {items.map((v) => (
+        <div key={v.id} className="valuation row between gap">
+          <span>
+            <b>{v.orgName}</b> · {fmtAmd(v.amount)} · {fmtDate(v.valuedAt, { dateOnly: true })} {v.reportNo ? `· ${v.reportNo}` : ''} ·{' '}
+            <a href={v.documentUrl} target="_blank" rel="noreferrer">
+              📄
+            </a>
+          </span>
+          {editable && (
+            <button className="btn sm" onClick={() => remove(v.id)}>
+              ✕
+            </button>
+          )}
+        </div>
+      ))}
+      {editable && (
+        <>
+          <div className="form-grid">
+            <label className="f">
+              {t('valuation_org')}
+              <input className="input" value={f.org_name} onChange={(e) => setF({ ...f, org_name: e.target.value })} />
+            </label>
+            <label className="f">
+              {t('valuation_amount')}, ֏
+              <input className="input" inputMode="numeric" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+            </label>
+            <label className="f">
+              {t('valuation_date')}
+              <input className="input" type="date" value={f.valued_at} onChange={(e) => setF({ ...f, valued_at: e.target.value })} />
+            </label>
+            <label className="f">
+              {t('report_no')}
+              <input className="input" value={f.report_no} onChange={(e) => setF({ ...f, report_no: e.target.value })} />
+            </label>
+          </div>
+          <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+          <button className="btn" style={{ alignSelf: 'start' }} disabled={!f.org_name || !f.amount || !f.valued_at || !file} onClick={add}>
+            {t('add_valuation')}
+          </button>
+          {err && <p className="error">{err}</p>}
+        </>
+      )}
+    </div>
+  );
+}

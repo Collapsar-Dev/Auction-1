@@ -61,6 +61,7 @@ export class AdminService {
     const seller = await this.db.one('SELECT id, full_name, phone, email, kyc_status, seller_blocked FROM users WHERE id=$1', [l.seller_id]);
     const mod = await this.db.q('SELECT m.*, u.username FROM moderation m LEFT JOIN users u ON u.id=m.moderator_id WHERE lot_id=$1 ORDER BY m.id DESC', [id]);
     const deal = await this.db.maybe('SELECT * FROM deals WHERE lot_id=$1', [id]);
+    const valuations = await this.db.q('SELECT id, org_name, amount, valued_at, report_no, storage_key FROM property_valuations WHERE property_id=$1', [p.id]);
     const result = await this.db.maybe('SELECT * FROM lot_results WHERE lot_id=$1', [id]);
     const now = this.clock.now();
     return {
@@ -70,6 +71,8 @@ export class AdminService {
       photos: media.filter((m) => m.kind === 'photo').map((m) => this.storage.publicUrl(m.storage_key)),
       extracts: media.filter((m) => m.kind === 'extract').map((m) => ({ id: m.id, uploadedAt: m.uploaded_at, url: this.storage.signedUrl(m.storage_key, now) })),
       moderation: mod,
+      valuations: valuations.map((v) => ({ ...v, url: this.storage.publicUrl(v.storage_key), storage_key: undefined })),
+      verification: (await this.db.one('SELECT verification FROM lots WHERE id=$1', [id])).verification,
       deal: deal ? { ...deal, new_extract_url: deal.new_extract_key ? this.storage.signedUrl(deal.new_extract_key, now) : null } : null,
       result,
     };

@@ -51,6 +51,7 @@ export class DealsService {
       extractUploadedAt: d.extract_uploaded_at,
       closedAt: d.closed_at,
       failReason: d.fail_reason,
+      round: d.round,
       commission: role === 'seller' ? commissionFor(d.amount, s) : 0,
       notaryDays: s.notary_days,
     };
@@ -108,14 +109,72 @@ export class DealsService {
     return { ok: true };
   }
 
-  /** SC-16: победитель отказался или молчит. Депозит — спорный до решения администратора (Q-01). */
+  /**
+   * SC-16: победитель отказался или молчит. Депозит — спорный до решения администратора (Q-01).
+   * v0.2 «второй шанс»: если отказ случился в течение second_chance_days после итога и у участника
+   * со 2-го места ещё заблокирован депозит — лот переходит к нему по его ставке.
+   */
   async buyerFailed(d: any, reason: string, t: Queryable) {
-    await t.q(`UPDATE deals SET status='buyer_failed', fail_reason=$2, closed_at=$3 WHERE lot_id=$1`, [d.lot_id, reason, this.clock.now()]);
-    await t.q(`UPDATE lots SET status='no_sale', ended_reason='buyer_failed' WHERE id=$1`, [d.lot_id]);
-    await t.q(`UPDATE deposits SET status='disputed', updated_at=$3 WHERE lot_id=$1 AND user_id=$2 AND status='held'`, [d.lot_id, d.winner_user_id, this.clock.now()]);
+    const now = this.clock.now();
+    await t.q(`UPDATE deposits SET status='disputed', updated_at=$3 WHERE lot_id=$1 AND user_id=$2 AND status='held'`, [d.lot_id, d.winner_user_id, now]);
     await this.risk.strike(d.winner_user_id, d.lot_id, 'winner refused or silent: ' + reason, t);
+    const runner = d.round === 1 ? await this.runnerUp(d.lot_id, t) : null;
+    if (runner) {
+      const s = await this.settings.all(t);
+      const web = process.env.WEB_URL || 'http://localhost:3000';
+      await t.q(
+        `UPDATE deals SET winner_user_id=$2, amount=$3, round=2, prev_winner_user_id=$4, transferred_at=$5, confirm_deadline=$6,
+           seller_confirmed_at=NULL, buyer_confirmed_at=NULL, status='awaiting_confirm', fail_reason=$7, new_extract_key=NULL, extract_uploaded_at=NULL WHERE lot_id=$1`,
+        [d.lot_id, runner.userId, runner.amount, d.winner_user_id, now, new Date(now.getTime() + s.deal_confirm_hours * HOUR), 'round 1: ' + reason],
+      );
+      await t.q(`UPDATE lots SET winner_bid_id=$2 WHERE id=$1`, [d.lot_id, runner.bidId]);
+      await this.audit.log(null, 'deal.second_chance', 'deal', d.lot_id, { winner: d.winner_user_id }, { winner: runner.userId, amount: runner.amount }, t);
+      const payload = { lotId: d.lot_id, amount: fmtAmd(runner.amount), hours: s.deal_confirm_hours, link: `${web}/deals/${d.lot_id}` };
+      await this.notify.queue(runner.userId, 'email', 'lot_offered_second', payload, { dedupeKey: `second:${d.lot_id}:${runner.userId}` }, t);
+      await this.notify.queue(runner.userId, 'sms', 'lot_offered_second', payload, { dedupeKey: `second_sms:${d.lot_id}:${runner.userId}` }, t);
+      await this.notify.queue(d.seller_id, 'email', 'lot_passed_second_seller', payload, { dedupeKey: `second_seller:${d.lot_id}` }, t);
+      await this.notify.queue(d.winner_user_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Вы отказались от сделки. Лот передан участнику со 2-го места. Ваш депозит остаётся заблокированным до решения администратора.' }, {}, t);
+      return 'transferred';
+    }
+    await t.q(`UPDATE deals SET status='buyer_failed', fail_reason=$2, closed_at=$3 WHERE lot_id=$1`, [d.lot_id, reason, now]);
+    await t.q(`UPDATE lots SET status='no_sale', ended_reason='buyer_failed' WHERE id=$1`, [d.lot_id]);
     await this.notify.queue(d.winner_user_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Сделка не состоялась по стороне покупателя. Депозит остаётся заблокированным до решения администратора.' }, {}, t);
     await this.notify.queue(d.seller_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Победитель отказался или не подтвердил сделку. Вы можете перезапустить лот.' }, {}, t);
+    return 'failed';
+  }
+
+  /** Участник со 2-го места, если «второй шанс» ещё действует и его депозит заблокирован. */
+  private async runnerUp(lotId: number, t: Queryable) {
+    const s = await this.settings.all(t);
+    if (!s.second_chance_days) return null;
+    const r = await t.maybe<{ ranking: any[]; revealed_at: Date }>('SELECT ranking, revealed_at FROM lot_results WHERE lot_id=$1', [lotId]);
+    if (!r || this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY) return null;
+    const second = r.ranking.find((x: any) => x.place === 2);
+    if (!second) return null;
+    const bid = await t.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [second.bidId]);
+    if (!bid) return null;
+    const dep = await t.maybe(`SELECT 1 FROM deposits WHERE lot_id=$1 AND user_id=$2 AND status='held'`, [lotId, bid.user_id]);
+    if (!dep) return null;
+    return { userId: bid.user_id, amount: second.amount as number, bidId: second.bidId as string };
+  }
+
+  /** Когда «второй шанс» больше невозможен — освободить депозит 2-го места. */
+  async releaseRunnerUps() {
+    const s = await this.settings.all();
+    const rows = await this.db.q<{ lot_id: number; ranking: any[]; revealed_at: Date; winner_user_id: number; status: string; round: number }>(
+      `SELECT r.lot_id, r.ranking, r.revealed_at, d.winner_user_id, d.status, d.round FROM lot_results r JOIN deals d ON d.lot_id=r.lot_id`,
+    );
+    for (const r of rows) {
+      const second = r.ranking.find((x: any) => x.place === 2);
+      if (!second) continue;
+      const bid = await this.db.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [second.bidId]);
+      if (!bid || bid.user_id === r.winner_user_id) continue; // 2-е место само стало покупателем
+      const windowOver = this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY;
+      const dealOver = ['sold', 'seller_failed', 'invalidated'].includes(r.status);
+      if (windowOver || dealOver || r.round === 2) {
+        await this.deposits.markReleasing(`lot_id=$1 AND user_id=$2 AND status='held'`, [r.lot_id, bid.user_id], this.db);
+      }
+    }
   }
 
   /** SC-17: продавец отказался или молчит → депозит победителя освобождается, продавец блокируется. */
@@ -141,8 +200,8 @@ export class DealsService {
           const cur = await t.one(`SELECT * FROM deals WHERE lot_id=$1 FOR UPDATE`, [d.lot_id]);
           if (cur.status !== 'awaiting_confirm') return;
           if (!cur.buyer_confirmed_at) {
-            await this.buyerFailed(cur, 'silent 48h', t);
-            if (!cur.seller_confirmed_at) {
+            const r = await this.buyerFailed(cur, 'silent 48h', t);
+            if (r === 'failed' && !cur.seller_confirmed_at) {
               await t.q(`UPDATE users SET seller_blocked=true, seller_block_reason='SELLER_FAILED_DEAL' WHERE id=$1`, [cur.seller_id]);
             }
           } else await this.sellerFailed(cur, 'silent 48h', t);
@@ -167,6 +226,7 @@ export class DealsService {
     const late = await this.db.q(`SELECT lot_id FROM deals WHERE status='confirmed' AND buyer_confirmed_at < $1 AND seller_confirmed_at < $1`, [new Date(now - s.notary_days * DAY)]);
     for (const d of late) await this.notify.alarmAdmins(`Deal #${d.lot_id}: no extract after ${s.notary_days} days`, 'Contact the parties (SC-15)', `notary_late:${d.lot_id}`);
     await this.processCommissions();
+    await this.releaseRunnerUps();
     await this.deposits.processReleases();
   }
 
@@ -202,6 +262,7 @@ export class DealsService {
       await this.notify.queue(d.seller_id, 'email', 'deal_sold', { lotId, extra: `Комиссия ${fmtAmd(commissionFor(d.amount, s))} будет списана с привязанной карты.` }, {}, t);
     });
     await this.processCommissions();
+    await this.releaseRunnerUps();
     await this.deposits.processReleases();
     return { ok: true };
   }

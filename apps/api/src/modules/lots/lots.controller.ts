@@ -106,6 +106,15 @@ export class LotsController {
   async delMedia(@Param('id', ParseIntPipe) id: number, @Param('mid', ParseIntPipe) mid: number, @Req() req: Request) {
     return this.lots.removeMedia(await this.auth.user(req), id, mid);
   }
+  @Post('lots/:id/valuations')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
+  async valuation(@Param('id', ParseIntPipe) id: number, @Body() b: any, @UploadedFile() file: Express.Multer.File, @Req() req: Request) {
+    return this.lots.addValuation(await this.auth.user(req), id, b ?? {}, file);
+  }
+  @Delete('lots/:id/valuations/:vid')
+  async delValuation(@Param('id', ParseIntPipe) id: number, @Param('vid', ParseIntPipe) vid: number, @Req() req: Request) {
+    return this.lots.removeValuation(await this.auth.user(req), id, vid);
+  }
   @Post('lots/:id/submit')
   async submit(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() req: Request) {
     return this.lots.submit(await this.auth.user(req), id, !!b?.acceptRules);

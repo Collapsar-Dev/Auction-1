@@ -25,6 +25,7 @@ import { KycService } from '../src/modules/kyc/kyc.service';
 import { RevealService } from '../src/modules/reveal/reveal.service';
 import { NotifyService } from '../src/modules/notifications/notify.service';
 import { demoPdf, demoPhoto } from './demo-images';
+import { DESC, VALUATIONS } from './demo-descriptions';
 
 export const ADMIN_TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 export const MODER_TOTP_SECRET = 'KRSXG5CTMVRXEZLUKRSXG5CTMVRXEZLU';
@@ -210,6 +211,7 @@ async function main() {
     },
   ];
 
+  for (const l of lots) if (DESC[l.key]) l.desc = DESC[l.key];
   const L: Record<string, number> = {};
   let seed = 0;
   for (const spec of lots) {
@@ -229,7 +231,25 @@ async function main() {
       const key = storage.putNamed(`public/seed/lot${seed}-${i + 1}.svg`, demoPhoto(spec.type, seed, i, spec.settlement));
       await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort) VALUES ($1,'photo',$2,false,$3)`, [prop.id, key, i + 1]);
     }
-    const ex = storage.putNamed(`private/seed/extract-${seed}.pdf`, demoPdf(`Cadastre extract (demo) - ${spec.settlement}, ${spec.street} - owner: ${people.find((p) => p.key === spec.seller)!.name}`));
+    const owner = people.find((p) => p.key === spec.seller)!.name;
+    const ex = storage.putNamed(
+      `private/seed/extract-${seed}.pdf`,
+      demoPdf(['Cadastre extract (DEMO)', `Object: ${spec.settlement}, ${spec.street}`, `Cadastral no: 01-0${seed}-0${100 + seed}-000${seed}`, `Owner: ${owner}`, 'Encumbrances: none', 'Mortgage: none']),
+    );
+    for (const [i, v] of (VALUATIONS[spec.key] ?? []).entries()) {
+      const key = storage.putNamed(
+        `public/seed/valuation-${seed}-${i}.pdf`,
+        demoPdf([`Valuation report ${v.reportNo} (DEMO)`, v.org, `Object: ${spec.settlement}, ${spec.street}`, `Area: ${spec.area} m2`, `Market value: ${v.amount.toLocaleString('en-US')} AMD`]),
+      );
+      await db.q(`INSERT INTO property_valuations(property_id, org_name, amount, valued_at, report_no, storage_key) VALUES ($1,$2,$3,$4,$5,$6)`, [
+        prop.id,
+        v.org,
+        v.amount,
+        at(-v.daysAgo * DAY).toISOString().slice(0, 10),
+        v.reportNo,
+        key,
+      ]);
+    }
     await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort) VALUES ($1,'extract',$2,true,100)`, [prop.id, ex]);
     const lot = await db.one(
       `INSERT INTO lots(property_id, seller_id, status, draft_step, start_price, opens_at, closes_at, deposit_amount, created_at) VALUES ($1,$2,$3,5,$4,$5,$6,$7,$8) RETURNING id`,
@@ -238,12 +258,13 @@ async function main() {
     L[spec.key] = lot.id;
     if (spec.status !== 'moderation') {
       const keys = generateLotKeys();
-      await db.q(`UPDATE lots SET public_key=$2, private_key_wrapped=$3, rules_snapshot=$4, approved_at=$5 WHERE id=$1`, [
+      await db.q(`UPDATE lots SET public_key=$2, private_key_wrapped=$3, rules_snapshot=$4, approved_at=$5, verification=$6 WHERE id=$1`, [
         lot.id,
         keys.publicKey,
         kms.wrap(lot.id, keys.privateKey),
         JSON.stringify({ ...s, consent_versions: undefined, auction_type: 'type1' }),
         at(spec.opens - 2 * DAY),
+        JSON.stringify({ extract: true, owner_match: true, no_encumbrance: true, photos_match: true, valuation: !!VALUATIONS[spec.key], checked_at: at(spec.opens - 2 * DAY).toISOString() }),
       ]);
       await db.q(`INSERT INTO moderation(lot_id, moderator_id, decision, comment, created_at) VALUES ($1,2,'approve','seed',$2)`, [lot.id, at(spec.opens - 2 * DAY)]);
     }
