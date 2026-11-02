@@ -1,0 +1,16 @@
+{
+  "name": "auction-type1",
+  "private": true,
+  "description": "Аукцион тип 1 — закрытый аукцион одной ставки на дома и квартиры в Армении",
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "db:create": "node scripts/db-create.mjs",
+    "seed": "npm run seed -w @auction/api",
+    "build": "npm run build -w @auction/api && npm run build -w @auction/web",
+    "dev": "node scripts/dev.mjs",
+    "start": "node scripts/dev.mjs --prod",
+    "test": "npm test -w @auction/api",
+    "typecheck": "npm run build -w @auction/api && npm run typecheck -w @auction/web"
+  },
+  "engines": { "node": ">=20" }
+}

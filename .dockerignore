@@ -1,0 +1,7 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+apps/api/storage
+apps/api/.test-storage
+.git

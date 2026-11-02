@@ -1,0 +1,39 @@
+# Проект поднимается одной командой (E0):
+#   docker compose up --build
+# Затем демо-данные:  docker compose exec api npm run seed
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: auction
+      POSTGRES_PASSWORD: auction
+      POSTGRES_DB: auction
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auction"]
+      interval: 3s
+      retries: 20
+  api:
+    build: { context: ., dockerfile: Dockerfile, target: api }
+    environment:
+      DATABASE_URL: postgresql://auction:auction@db:5432/auction
+      WEB_URL: http://localhost:3000
+      DEV_TOOLS: "true"
+      DEV_SHOW_CODES: "true"
+      APP_SECRET: dev-secret-change-me
+      KMS_MASTER_KEY: dev-kms-master-key
+    ports: ["4000:4000"]
+    volumes: [storage:/app/apps/api/storage]
+    depends_on: { db: { condition: service_healthy } }
+  web:
+    build: { context: ., dockerfile: Dockerfile, target: web }
+    environment:
+      API_URL: http://api:4000
+    ports: ["3000:3000"]
+    depends_on: [api]
+volumes:
+  pgdata:
+  storage:

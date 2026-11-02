@@ -1,0 +1,90 @@
+import { Injectable } from '@nestjs/common';
+import { Db, Queryable } from './db';
+
+/** Все числа правил — в таблице settings (PRD 2). Здесь — значения по умолчанию. */
+export const DEFAULT_SETTINGS = {
+  min_start_price: 1_000_000, // R-01
+  duration_min_hours: 72, // R-02: 3 дня
+  duration_max_hours: 336, // R-02: 14 дней
+  start_delay_hours: 24, // R-02: старт не раньше чем через 24 ч после одобрения
+  deposit_bp: 100, // R-13: 1% (в базисных пунктах)
+  deposit_min: 200_000,
+  deposit_max: 2_000_000,
+  commission_bp: 50, // R-17: 0,5%
+  commission_min: 100_000,
+  deal_confirm_hours: 48, // R-16
+  notary_days: 10,
+  reveal_deadline_sec: 60, // R-09
+  reveal_alarm_min: 5, // SC-11
+  outage_threshold_min: 5, // R-08
+  outage_extend_hours: 24,
+  otp_ttl_sec: 300, // AU-01
+  otp_attempts: 5,
+  otp_resend_sec: 60,
+  otp_daily_max: 10,
+  stepup_ttl_sec: 300, // AU-03
+  phone_change_cooldown_days: 7, // AU-04
+  photos_min: 10, // SC-04
+  photos_max: 30,
+  extract_max_workdays: 15,
+  hold_days: 30, // Q-02: срок блокировки в фейковом банке
+  hold_renew_hours: 72,
+  commission_retry_days: 3,
+  standard_max_active_bids: 2, // R-20
+  standard_max_open_deals: 1, // R-19
+  investor_max_active_bids: 5, // R-21
+  investor_max_open_deals: 3,
+  investor_days: 90,
+  funds_proof_max_age_days: 30,
+  funds_proof_keep_days: 180,
+  s1_wins: 3, // 6A.2
+  s1_days: 30,
+  s2_gap_pct: 30,
+  s2_start_mult: 2,
+  s3_months: 12,
+  s6_sum: 200_000_000,
+  s6_days: 90,
+  sanction_days_1: 30, // 6A.3
+  sanction_days_2: 180,
+  subscription_reminder_days: [14, 3],
+  dispute_hours: 48, // SC-19
+  consent_versions: { terms: '1.0', privacy: '1.0', biometrics: '1.0', auction_rules: '1.0', seller_offer: '1.0' },
+};
+export type Settings = typeof DEFAULT_SETTINGS;
+export type SettingKey = keyof Settings;
+
+@Injectable()
+export class SettingsService {
+  constructor(private db: Db) {}
+
+  async all(t: Queryable = this.db): Promise<Settings> {
+    const rows = await t.q<{ key: string; value: unknown }>('SELECT key, value FROM settings');
+    const s: any = { ...DEFAULT_SETTINGS };
+    for (const r of rows) if (r.key in s) s[r.key] = r.value;
+    return s as Settings;
+  }
+
+  async get<K extends SettingKey>(key: K, t: Queryable = this.db): Promise<Settings[K]> {
+    const r = await t.maybe<{ value: Settings[K] }>('SELECT value FROM settings WHERE key=$1', [key]);
+    return r ? r.value : DEFAULT_SETTINGS[key];
+  }
+
+  async set(key: SettingKey, value: unknown, by: number | null, t: Queryable = this.db) {
+    await t.q(
+      `INSERT INTO settings(key, value, updated_by, updated_at) VALUES ($1,$2,$3,now())
+       ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_by=EXCLUDED.updated_by, updated_at=now()`,
+      [key, JSON.stringify(value), by],
+    );
+  }
+}
+
+/** 6.1: депозит — 1% от начальной цены в пределах [min, max]. Не зависит от ставки. */
+export function depositFor(startPrice: number, s: Pick<Settings, 'deposit_bp' | 'deposit_min' | 'deposit_max'>) {
+  const raw = Math.floor((startPrice * s.deposit_bp) / 10_000);
+  return Math.min(s.deposit_max, Math.max(s.deposit_min, raw));
+}
+
+/** R-17: комиссия продавца — 0,5% от цены, не меньше минимума. */
+export function commissionFor(price: number, s: Pick<Settings, 'commission_bp' | 'commission_min'>) {
+  return Math.max(s.commission_min, Math.floor((price * s.commission_bp) / 10_000));
+}
