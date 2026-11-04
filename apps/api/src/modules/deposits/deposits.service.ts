@@ -36,6 +36,9 @@ export class DepositsService {
       if (!lot) fail('LOT_NOT_FOUND', 404);
       // можно заранее, пока лот «Скоро»
       if (!['scheduled', 'live'].includes(lot.status) || now.getTime() >= new Date(lot.closes_at).getTime()) fail('LOT_NOT_OPEN_FOR_DEPOSIT');
+      // PRD v2 решение 11: регистрация открывается в свою дату; во время торгов — если продавец разрешил
+      if (lot.registration_opens_at && now.getTime() < new Date(lot.registration_opens_at).getTime()) fail('REGISTRATION_NOT_OPEN', 409, { opensAt: lot.registration_opens_at });
+      if (!lot.allow_late_registration && now.getTime() >= new Date(lot.opens_at).getTime()) fail('REGISTRATION_CLOSED', 409);
       await this.elig.assertCanParticipate(user, lot, t, { needDeposit: false });
       const ex = await t.maybe(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2 AND status IN ('pending','held','releasing','disputed')`, [lotId, user.id]);
       if (ex) fail('DEPOSIT_EXISTS');

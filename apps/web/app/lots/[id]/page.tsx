@@ -6,7 +6,7 @@ import { api, ApiError } from '@/lib/api';
 import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
-import { StatusBadge } from '@/components/Shell';
+import { StageBadge } from '@/components/Shell';
 import { BidBlock } from '@/components/BidBlock';
 import { ResultTable } from '@/components/ResultTable';
 import { VerifiedDocs, Valuations } from '@/components/LotExtras';
@@ -85,7 +85,7 @@ export default function LotPage() {
           <h1 style={{ margin: 0 }}>
             {t('type_' + p.property_type)} · {p.settlement}
           </h1>
-          <StatusBadge status={lot.status} />
+          <StageBadge stage={lot.stage} />
         </div>
         <div className="muted">
           {t('region_' + p.region)}, {p.settlement}, {p.street} · #{lot.id}

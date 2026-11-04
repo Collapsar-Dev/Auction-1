@@ -50,7 +50,19 @@ const step2Apt = step2Common.extend({
   has_balcony: z.boolean(),
   parking: z.boolean(),
 });
-const step4 = z.object({ start_price: z.number().int(), opens_at: z.string().datetime({ offset: true }), closes_at: z.string().datetime({ offset: true }) });
+const step4 = z.object({
+  start_price: z.number().int(),
+  opens_at: z.string().datetime({ offset: true }),
+  closes_at: z.string().datetime({ offset: true }),
+  // PRD v2 решение 11: отдельные даты показа и регистрации (необязательны)
+  published_at: z.string().datetime({ offset: true }).nullish(),
+  registration_opens_at: z.string().datetime({ offset: true }).nullish(),
+  allow_late_registration: z.boolean().optional(),
+});
+
+/** PRD v2 §2: статусы лота для покупателя и порядок в каталоге. */
+export const STAGE_ORDER = ['in_progress', 'registration_open', 'upcoming', 'awaiting_contract', 'finished', 'no_sale', 'cancelled'] as const;
+export type Stage = (typeof STAGE_ORDER)[number];
 
 const PROPERTY_COLS = [
   'property_type', 'cadastral_no', 'region', 'settlement', 'street', 'geo_lat', 'geo_lng', 'area_m2', 'rooms', 'bathrooms', 'year_built', 'heating', 'condition',
@@ -106,14 +118,12 @@ export class LotsService {
     else if (step === 4) {
       const v = step4.parse(data);
       await this.validateTerms(v.start_price, new Date(v.opens_at), new Date(v.closes_at), null);
+      LotsService.validateDates(v.published_at, v.registration_opens_at, v.opens_at);
       const s = await this.settings.all();
-      await this.db.q(`UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, draft_step=GREATEST(draft_step,5) WHERE id=$1`, [
-        lotId,
-        v.start_price,
-        v.opens_at,
-        v.closes_at,
-        depositFor(v.start_price, s),
-      ]);
+      await this.db.q(
+        `UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, published_at=$6, registration_opens_at=$7, allow_late_registration=$8, draft_step=GREATEST(draft_step,5) WHERE id=$1`,
+        [lotId, v.start_price, v.opens_at, v.closes_at, depositFor(v.start_price, s), v.published_at ?? null, v.registration_opens_at ?? null, v.allow_late_registration ?? true],
+      );
       return this.draft(user, lotId);
     } else if (step !== 3 && step !== 5) fail('STEP_INVALID');
     if (Object.keys(fields).length) {
@@ -123,6 +133,15 @@ export class LotsService {
     }
     await this.db.q('UPDATE lots SET draft_step=GREATEST(draft_step,$2) WHERE id=$1', [lotId, Math.min(5, step + 1)]);
     return this.draft(user, lotId);
+  }
+
+  /** PRD v2: показ ≤ регистрация ≤ начало торгов. */
+  static validateDates(published?: string | null, registration?: string | null, opens?: string) {
+    const ms = (x?: string | null) => (x ? new Date(x).getTime() : null);
+    const [p, r, o] = [ms(published), ms(registration), ms(opens)];
+    if (p !== null && r !== null && r < p) fail('REGISTRATION_BEFORE_PUBLISH');
+    if (r !== null && o !== null && r > o) fail('REGISTRATION_AFTER_START');
+    if (p !== null && o !== null && p > o) fail('PUBLISH_AFTER_START');
   }
 
   /** R-01, R-02. approvedAt — момент одобрения (для правила 24 ч). */
@@ -388,6 +407,10 @@ export class LotsService {
       start_price: l.start_price,
       opens_at: l.opens_at,
       closes_at: l.closes_at,
+      published_at: l.published_at ?? l.approved_at ?? null,
+      registration_opens_at: l.registration_opens_at ?? l.published_at ?? l.approved_at ?? null,
+      allow_late_registration: l.allow_late_registration ?? true,
+      stage: this.stage(l),
       deposit_amount: l.deposit_amount,
       extended_at: l.extended_at,
       draft_step: l.draft_step,
@@ -402,8 +425,21 @@ export class LotsService {
     return l.status;
   }
 
+  /** PRD v2 §2: скоро / регистрация / торги / ждёт договора / завершён / не состоялся / отменён. */
+  stage(l: { status: string; opens_at: Date; closes_at: Date; registration_opens_at?: Date | null }): Stage | string {
+    if (['withdrawn', 'invalidated'].includes(l.status)) return 'cancelled';
+    if (l.status === 'sold') return 'finished';
+    if (l.status === 'no_sale') return 'no_sale';
+    if (l.status === 'finished') return 'awaiting_contract';
+    const d = this.displayStatus(l);
+    if (d === 'live' || d === 'revealing') return 'in_progress';
+    if (d === 'scheduled') return !l.registration_opens_at || this.clock.ms() >= new Date(l.registration_opens_at).getTime() ? 'registration_open' : 'upcoming';
+    return l.status; // черновики и модерация — для кабинета продавца
+  }
+
   async catalog(q: Record<string, string>) {
-    const where: string[] = [`l.status = ANY($1)`];
+    // PRD v2: отменённые после публикации тоже видны (внизу каталога)
+    const where: string[] = [`(l.status = ANY($1) OR (l.status IN ('withdrawn','invalidated') AND l.approved_at IS NOT NULL AND coalesce(l.ended_reason,'') <> 'seller_draft'))`];
     const params: unknown[] = [PUBLIC_STATUSES];
     const add = (sql: string, v: unknown) => {
       params.push(v);
@@ -421,7 +457,9 @@ export class LotsService {
     if (q.status === 'live') add(`(l.status IN ('scheduled','live') AND l.opens_at <= ?)`, now);
     if (q.status === 'live') add(`l.closes_at > ?`, now);
     if (q.status === 'ended') add(`(l.status IN ('revealing','finished','no_sale','sold') OR l.closes_at <= ?)`, now);
-    const isDefaultSort = !['new', 'price_asc', 'price_desc'].includes(q.sort);
+    if (q.status) where.push(`l.status NOT IN ('withdrawn','invalidated')`); // фильтры v1 — без отменённых
+    add('(l.published_at IS NULL OR l.published_at <= ?)', now); // до даты показа лота в каталоге нет
+    const isDefaultSort = !['new', 'price_asc', 'price_desc', 'ending'].includes(q.sort);
     if (isDefaultSort) params.push(now);
     const nowP = '$' + params.length + '::timestamptz';
     const order =
@@ -438,9 +476,7 @@ export class LotsService {
        FROM lots l JOIN properties p ON p.id=l.property_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 200`,
       params,
     );
-    return {
-      serverTime: now.toISOString(),
-      items: rows.map((r) => ({
+    let items = rows.map((r) => ({
         ...this.lotPublicFields(r),
         property_type: r.property_type,
         region: r.region,
@@ -449,8 +485,16 @@ export class LotsService {
         area_m2: r.area_m2,
         rooms: r.rooms,
         cover: r.cover ? this.storage.publicUrl(r.cover) : null,
-      })),
-    };
+      }));
+    if (q.stage) items = items.filter((i) => i.stage === q.stage);
+    if (isDefaultSort) {
+      // PRD v2: торги → регистрация → скоро → ждёт договора → завершён / не состоялся → отменён;
+      // внутри активных — что раньше закончится (или начнётся), внутри завершённых — свежие сверху
+      const rank = (st: string) => { const i = STAGE_ORDER.indexOf(st as Stage); return i < 0 ? 99 : i === 5 ? 4 : i; };
+      const t = (x: any) => new Date(x.closes_at).getTime();
+      items = [...items].sort((a, b) => rank(a.stage) - rank(b.stage) || (rank(a.stage) <= 2 ? t(a) - t(b) : t(b) - t(a)));
+    }
+    return { serverTime: now.toISOString(), items };
   }
 
   /** Карточка лота. До итога — никаких данных о ставках (R-06, R-07). */
@@ -458,6 +502,7 @@ export class LotsService {
     const l = await this.db.maybe(`SELECT * FROM lots WHERE id=$1`, [lotId]);
     const isOwner = viewer && l && l.seller_id === viewer.id;
     if (!l || (!PUBLIC_STATUSES.includes(l.status) && !isOwner && !['withdrawn', 'invalidated'].includes(l.status))) fail('LOT_NOT_FOUND', 404);
+    if (!isOwner && l.published_at && this.clock.ms() < new Date(l.published_at).getTime()) fail('LOT_NOT_FOUND', 404); // PRD v2: до даты показа
     const p = await this.db.one('SELECT * FROM properties WHERE id=$1', [l.property_id]);
     const photos = await this.db.q(`SELECT storage_key FROM property_media WHERE property_id=$1 AND kind='photo' ORDER BY sort`, [l.property_id]);
     const plan = l.start_price ? await this.plans.suggestFor(l.start_price) : null;

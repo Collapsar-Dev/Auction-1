@@ -35,6 +35,9 @@ export default function Wizard() {
       start_price: r.lot.start_price ?? '',
       opens_at: toYerevanInput(r.lot.opens_at),
       closes_at: toYerevanInput(r.lot.closes_at),
+      published_at: r.lot.published_at ? toYerevanInput(r.lot.published_at) : '',
+      registration_opens_at: r.lot.registration_opens_at ? toYerevanInput(r.lot.registration_opens_at) : '',
+      allow_late_registration: r.lot.allow_late_registration ?? true,
     });
     if (goTo) setStep(goTo);
     else setStep(Math.min(5, r.lot.draft_step || 1));
@@ -61,7 +64,16 @@ export default function Wizard() {
         if (form.property_type === 'house') Object.assign(data, { land_area_m2: n(form.land_area_m2), floors: n(form.floors), wall_material: form.wall_material, gas: !!form.gas, water: !!form.water, sewage: !!form.sewage });
         else Object.assign(data, { floor: n(form.floor), building_floors: n(form.building_floors), building_type: form.building_type, has_elevator: !!form.has_elevator, has_balcony: !!form.has_balcony, parking: !!form.parking });
       }
-      if (s === 4) data = { start_price: n(form.start_price), opens_at: fromYerevanInput(form.opens_at), closes_at: fromYerevanInput(form.closes_at) };
+      if (s === 4)
+        data = {
+          start_price: n(form.start_price),
+          opens_at: fromYerevanInput(form.opens_at),
+          closes_at: fromYerevanInput(form.closes_at),
+          // PRD v2: отдельные даты показа и регистрации (пусто = сразу после одобрения)
+          published_at: form.published_at ? fromYerevanInput(form.published_at) : null,
+          registration_opens_at: form.registration_opens_at ? fromYerevanInput(form.registration_opens_at) : null,
+          allow_late_registration: form.allow_late_registration !== false,
+        };
       await api(`/lots/${id}`, { method: 'PATCH', body: { step: s, data } });
       await load(s + 1);
     } catch (e) {
@@ -269,7 +281,20 @@ export default function Wizard() {
                 {t('closes_at')} (Yerevan)
                 <input className="input" type="datetime-local" value={form.closes_at || ''} onChange={set('closes_at')} />
               </label>
+              <label className="f">
+                {t('published_at')} (Yerevan)
+                <input className="input" type="datetime-local" value={form.published_at || ''} onChange={set('published_at')} />
+                <span className="small muted">{t('date_empty_hint')}</span>
+              </label>
+              <label className="f">
+                {t('registration_opens_at')} (Yerevan)
+                <input className="input" type="datetime-local" value={form.registration_opens_at || ''} onChange={set('registration_opens_at')} />
+                <span className="small muted">{t('date_empty_hint')}</span>
+              </label>
             </div>
+            <label className="check small">
+              <input type="checkbox" checked={form.allow_late_registration !== false} onChange={set('allow_late_registration')} /> {t('allow_late_registration')}
+            </label>
             {d.preview && (
               <div className="kv">
                 <span>{t('your_deposit_for_buyers')}</span>

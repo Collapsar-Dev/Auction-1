@@ -5,13 +5,13 @@ import { api } from '@/lib/api';
 import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
-import { StatusBadge } from '@/components/Shell';
+import { StageBadge, STAGES } from '@/components/Shell';
 
 const REGIONS = ['Yerevan', 'Aragatsotn', 'Ararat', 'Armavir', 'Gegharkunik', 'Kotayk', 'Lori', 'Shirak', 'Syunik', 'Tavush', 'Vayots Dzor'];
 
 export default function Catalog() {
   const { t, syncTime } = useApp();
-  const [f, setF] = useState<Record<string, string>>({ sort: 'ending' });
+  const [f, setF] = useState<Record<string, string>>({ sort: 'stage' });
   const [items, setItems] = useState<any[] | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
@@ -78,23 +78,26 @@ export default function Catalog() {
         </label>
         <label className="f">
           {t('f_status')}
-          <select className="input" value={f.status || ''} onChange={set('status')}>
+          <select className="input" value={f.stage || ''} onChange={set('stage')}>
             <option value="">{t('f_any')}</option>
-            <option value="soon">{t('status_scheduled')}</option>
-            <option value="live">{t('status_live')}</option>
-            <option value="ended">{t('f_ended')}</option>
+            {STAGES.map((st) => (
+              <option key={st} value={st}>
+                {t('stage_' + st)}
+              </option>
+            ))}
           </select>
         </label>
         <label className="f">
           {t('sort')}
           <select className="input" value={f.sort} onChange={set('sort')}>
+            <option value="stage">{t('sort_stage')}</option>
             <option value="ending">{t('sort_ending')}</option>
             <option value="new">{t('sort_new')}</option>
             <option value="price_asc">{t('sort_price_asc')}</option>
             <option value="price_desc">{t('sort_price_desc')}</option>
           </select>
         </label>
-        <button className="btn ghost" onClick={() => setF({ sort: 'ending' })}>
+        <button className="btn ghost" onClick={() => setF({ sort: 'stage' })}>
           {t('reset')}
         </button>
       </div>
@@ -119,7 +122,7 @@ function LotTile({ l }: { l: any }) {
     <Link href={`/lots/${l.id}`} className="lot-tile">
       <div className="img" style={{ backgroundImage: l.cover ? `url(${l.cover})` : undefined }}>
         <span className="badge-wrap" style={{ position: 'absolute', top: 10, left: 10 }}>
-          <StatusBadge status={l.status} />
+          <StageBadge stage={l.stage} />
         </span>
       </div>
       <div className="body">
