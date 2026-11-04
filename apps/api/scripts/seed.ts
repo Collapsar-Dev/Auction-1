@@ -349,6 +349,15 @@ async function main() {
   await notify.deliver(1000);
   await db.q(`INSERT INTO heartbeats(id, at) VALUES (1,$1)`, [clock.now()]);
 
+  // PRD v2: за каждый уже внесённый взнос списывается 1 попытка тарифа (как при нажатии «Участвовать»)
+  await db.q(
+    `INSERT INTO participation_credits(subscription_id, user_id, lot_id, type, created_at)
+     SELECT DISTINCT ON (d.user_id, d.lot_id) s.id, d.user_id, d.lot_id, 'spent', d.created_at
+     FROM deposits d JOIN subscriptions s ON s.user_id=d.user_id AND s.status='active'
+     WHERE d.status <> 'failed' ORDER BY d.user_id, d.lot_id, s.id`,
+  );
+  await db.q(`UPDATE subscriptions s SET participations_used = (SELECT count(*) FROM participation_credits c WHERE c.subscription_id=s.id AND c.type='spent')`);
+
   await app.close();
 
   console.log('\n✔ Демо-данные загружены. Лоты:', L);

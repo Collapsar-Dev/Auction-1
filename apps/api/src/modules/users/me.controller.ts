@@ -126,6 +126,10 @@ export class MeController {
   async myLots(@Req() req: Request) {
     return this.lots.myLots((await this.auth.user(req)).id);
   }
+  @Get('account')
+  async account(@Req() req: Request) {
+    return this.deposits.account((await this.auth.user(req)).id);
+  }
   @Get('deposits')
   async myDeposits(@Req() req: Request) {
     return this.deposits.mine((await this.auth.user(req)).id);

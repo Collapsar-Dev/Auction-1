@@ -120,6 +120,7 @@ function Participate({ data, reload }: { data: any; reload: () => void }) {
   const [cardId, setCardId] = useState<number | undefined>();
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [funds, setFunds] = useState<any>(null); // PRD v2: окно «Не хватает средств. Пополнить?»
   const steps: any[] = data.steps || [];
   const allDone = steps.every((s) => s.done);
   const plan = steps.find((s) => s.key === 'subscription')?.data?.plan;
@@ -140,8 +141,9 @@ function Participate({ data, reload }: { data: any; reload: () => void }) {
       await fn(token);
       await reloadMe();
       reload();
-    } catch (e) {
-      setErr(tErr(e));
+    } catch (e: any) {
+      if (e?.code === 'DEPOSIT_DECLINED' && e?.data?.reason === 'INSUFFICIENT_FUNDS') setFunds(e.data);
+      else setErr(tErr(e));
     } finally {
       setBusy(false);
     }
@@ -194,7 +196,7 @@ function Participate({ data, reload }: { data: any; reload: () => void }) {
               <span className="ico">{s.done ? '✓' : i + 1}</span>
               <span className="grow">
                 {t('step_' + s.key)}
-                {s.key === 'deposit' && <span className="muted small"> · {fmtAmd(s.data.amount)}</span>}
+                {s.key === 'deposit' && <span className="muted small"> · {fmtAmd(s.data.amount)}{data.lot.guarantee_percent !== null && data.lot.guarantee_percent !== undefined ? ` (${data.lot.guarantee_percent}%)` : ''}</span>}
                 {s.key === 'subscription' && plan && <span className="muted small"> · {plan}</span>}
                 {s.key === 'subscription' && s.done && s.data?.left !== null && s.data?.left !== undefined && <span className="muted small"> · {t('tries_left', { left: s.data.left, limit: s.data.limit })}</span>}
               </span>
@@ -221,6 +223,22 @@ function Participate({ data, reload }: { data: any; reload: () => void }) {
         )}
         {steps.find((s) => s.key === 'deposit' && !s.done) && <p className="small muted">{t('deposit_note')}</p>}
         {err && <p className="error">{err}</p>}
+        {funds && (
+          <div className="modal-bg" role="dialog" aria-modal="true">
+            <div className="modal stack">
+              <h3>{t('funds_title')}</h3>
+              <p>{t('funds_text', { amount: fmtAmd(funds.amount), mask: funds.mask })}</p>
+              <div className="row gap">
+                <Link className="btn primary" href="/account?tab=cards">
+                  {t('funds_yes')}
+                </Link>
+                <button className="btn ghost" onClick={() => setFunds(null)}>
+                  {t('funds_no')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {stepUp.node}
         {!me && <span hidden onClick={() => router.push('/login')} />}
       </>

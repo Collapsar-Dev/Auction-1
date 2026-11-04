@@ -60,6 +60,12 @@ export class DepositsService {
       return { depositId: d.id as number, card: card!, amount: lot.deposit_amount as number };
     });
     await this.risk.recordFingerprint(user.id, fp.ua, fp.ip);
+    if (prep.amount === 0) {
+      // PRD v2: продавец поставил взнос 0 % — регистрация без блокировки денег
+      await this.db.q(`UPDATE deposits SET status='held', updated_at=$2 WHERE id=$1`, [prep.depositId, this.clock.now()]);
+      await this.audit.log(user.id, 'deposit.held', 'deposit', prep.depositId, null, { lotId, amount: 0 });
+      return { id: prep.depositId, status: 'held', amount: 0, holdExpiresAt: null };
+    }
     const s = await this.settings.all();
     const order = await this.gw.holdByBinding(prep.card.binding_id, prep.amount, `deposit:${prep.depositId}`, s.hold_days, now);
     const st = await this.gw.getOrderStatus(order.orderId); // проверяем статус у шлюза сами
@@ -68,7 +74,8 @@ export class DepositsService {
         await t.q(`UPDATE deposits SET status='failed', gateway_order_id=$2, fail_reason='BANK_DECLINED', updated_at=$3 WHERE id=$1`, [prep.depositId, order.orderId, this.clock.now()]);
         await this.plans.refund(user.id, lotId, 'BANK_DECLINED', null, t); // банк отказал — попытка не сгорает
       });
-      fail('DEPOSIT_DECLINED', 402, { canChooseAnotherCard: true });
+      // PRD v2: окно «Не хватает средств. Пополнить?» — сайту нужны сумма и карта
+      fail('DEPOSIT_DECLINED', 402, { canChooseAnotherCard: true, reason: 'INSUFFICIENT_FUNDS', amount: prep.amount, mask: prep.card.mask });
     }
     await this.db.q(`UPDATE deposits SET status='held', gateway_order_id=$2, hold_expires_at=$3, updated_at=$4 WHERE id=$1`, [prep.depositId, order.orderId, st!.holdExpiresAt, this.clock.now()]);
     await this.audit.log(user.id, 'deposit.held', 'deposit', prep.depositId, null, { lotId, amount: prep.amount });
@@ -126,12 +133,32 @@ export class DepositsService {
       await this.db.q(`UPDATE deposits SET status='releasing', updated_at=$2 WHERE id=$1`, [depositId, this.clock.now()]);
       await this.processReleases();
     } else {
-      const ok = await this.gw.deposit(d.gateway_order_id);
+      const ok = d.gateway_order_id ? await this.gw.deposit(d.gateway_order_id) : true; // взнос 0 % — списывать нечего
       if (!ok) fail('CHARGE_FAILED', 402);
       await this.db.q(`UPDATE deposits SET status='charged', updated_at=$2 WHERE id=$1`, [depositId, this.clock.now()]);
     }
     await this.audit.log(admin.id, 'deposit.' + action, 'deposit', depositId, { status: 'disputed' }, { reason });
     return { ok: true };
+  }
+
+  /**
+   * PRD v2 «Счёт участника» (F6). Пока деньги блокируются на карте (PRD v2 §7, вариант A), счёт — это
+   * сводка по взносам; при переходе на эскроу банка поменяется источник, а не интерфейс.
+   */
+  async account(userId: number) {
+    const items = await this.db.q(
+      `SELECT d.id, d.lot_id, d.amount, d.status, d.hold_expires_at, d.created_at, d.updated_at, c.mask,
+              l.status AS lot_status, l.start_price, l.guarantee_bp, p.settlement, p.street
+       FROM deposits d LEFT JOIN cards c ON c.id=d.card_id JOIN lots l ON l.id=d.lot_id JOIN properties p ON p.id=l.property_id
+       WHERE d.user_id=$1 AND d.status <> 'failed' ORDER BY d.id DESC`,
+      [userId],
+    );
+    const sum = (st: string[]) => items.filter((i) => st.includes(i.status)).reduce((a, i) => a + Number(i.amount), 0);
+    return {
+      model: 'card_hold',
+      totals: { blocked: sum(['pending', 'held', 'disputed']), releasing: sum(['releasing']), released: sum(['released']), charged: sum(['charged']) },
+      items: items.map((i) => ({ ...i, amount: Number(i.amount), guarantee_percent: i.guarantee_bp === null ? null : i.guarantee_bp / 100, guarantee_bp: undefined })),
+    };
   }
 
   mine(userId: number) {

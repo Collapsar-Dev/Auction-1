@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS = {
   deposit_bp: 100, // R-13: 1% (в базисных пунктах)
   deposit_min: 200_000,
   deposit_max: 2_000_000,
+  guarantee_default_bp: 100, // PRD v2 решение 6: взнос по умолчанию в мастере — 1 %
+  guarantee_max_bp: 1000, // PRD v2: максимум 10 %
   commission_bp: 50, // R-17: 0,5%
   commission_min: 100_000,
   deal_confirm_hours: 48, // R-16
@@ -82,6 +84,15 @@ export class SettingsService {
 }
 
 /** 6.1: депозит — 1% от начальной цены в пределах [min, max]. Не зависит от ставки. */
+/**
+ * PRD v2 решение 6: взнос по проценту продавца (guarantee_bp, 0–1000 б.п.) — ровно этот процент, без мин/макс.
+ * Без процента (NULL) — правило v1 depositFor.
+ */
+export function guaranteeFor(startPrice: number, guaranteeBp: number | null | undefined, s: Pick<Settings, 'deposit_bp' | 'deposit_min' | 'deposit_max'>) {
+  if (guaranteeBp === null || guaranteeBp === undefined) return depositFor(startPrice, s);
+  return Math.floor((startPrice * guaranteeBp) / 10_000);
+}
+
 export function depositFor(startPrice: number, s: Pick<Settings, 'deposit_bp' | 'deposit_min' | 'deposit_max'>) {
   const raw = Math.floor((startPrice * s.deposit_bp) / 10_000);
   return Math.min(s.deposit_max, Math.max(s.deposit_min, raw));

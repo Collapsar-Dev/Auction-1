@@ -38,6 +38,7 @@ export default function Wizard() {
       published_at: r.lot.published_at ? toYerevanInput(r.lot.published_at) : '',
       registration_opens_at: r.lot.registration_opens_at ? toYerevanInput(r.lot.registration_opens_at) : '',
       allow_late_registration: r.lot.allow_late_registration ?? true,
+      guarantee_percent: r.lot.guarantee_percent ?? 1,
     });
     if (goTo) setStep(goTo);
     else setStep(Math.min(5, r.lot.draft_step || 1));
@@ -73,6 +74,7 @@ export default function Wizard() {
           published_at: form.published_at ? fromYerevanInput(form.published_at) : null,
           registration_opens_at: form.registration_opens_at ? fromYerevanInput(form.registration_opens_at) : null,
           allow_late_registration: form.allow_late_registration !== false,
+          guarantee_percent: form.guarantee_percent === '' || form.guarantee_percent === undefined ? undefined : Number(form.guarantee_percent),
         };
       await api(`/lots/${id}`, { method: 'PATCH', body: { step: s, data } });
       await load(s + 1);
@@ -273,6 +275,14 @@ export default function Wizard() {
             <p className="small muted">{t('terms_hint', { min: fmtAmd(L.minStartPrice), dmin: L.durationMinHours, dmax: L.durationMaxHours, delay: L.startDelayHours })}</p>
             <div className="form-grid">
               <Num label={t('start_price') + ', ֏'} v={form.start_price} on={set('start_price', true)} />
+              <label className="f">
+                {t('guarantee_percent')}
+                <input className="input" type="number" min={0} max={10} step={0.1} value={form.guarantee_percent ?? ''} onChange={set('guarantee_percent', true)} />
+                <span className="small muted">
+                  {t('guarantee_hint')}
+                  {form.start_price && form.guarantee_percent !== '' ? ` · ${fmtAmd(Math.floor((Number(form.start_price) * Math.round(Number(form.guarantee_percent) * 100)) / 10000))}` : ''}
+                </span>
+              </label>
               <label className="f">
                 {t('opens_at')} (Yerevan)
                 <input className="input" type="datetime-local" value={form.opens_at || ''} onChange={set('opens_at')} />

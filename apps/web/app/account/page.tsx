@@ -425,20 +425,41 @@ function Deals() {
   );
 }
 
+/** PRD v2 «Счёт участника» (F6): блокировки взносов и итоги. Деньги пока блокируются на карте (§7, вариант A). */
 function Deposits() {
   const { t } = useApp();
-  const rows = useRows('/me/deposits');
+  const [acc, setAcc] = useState<any>(null);
+  useEffect(() => {
+    api('/me/account').then(setAcc);
+  }, []);
+  if (!acc) return <p className="muted">{t('loading')}</p>;
+  const tiles: [string, number][] = [
+    [t('acc_blocked'), acc.totals.blocked + acc.totals.releasing],
+    [t('acc_released'), acc.totals.released],
+    [t('acc_charged'), acc.totals.charged],
+  ];
   return (
-    <List
-      rows={rows}
-      cols={[
-        ['#', (r) => <Link href={`/lots/${r.lot_id}`}>#{r.lot_id}</Link>],
-        [t('amount'), (r) => fmtAmd(r.amount)],
-        [t('choose_card'), (r) => r.mask],
-        [t('status'), (r) => r.status],
-        ['', (r) => <span className="small muted">{fmtDate(r.created_at)}</span>],
-      ]}
-    />
+    <div className="stack">
+      <div className="grid">
+        {tiles.map(([l, v]) => (
+          <div key={l} className="card">
+            <div className="small muted">{l}</div>
+            <div className="big-price">{fmtAmd(v)}</div>
+          </div>
+        ))}
+      </div>
+      <p className="small muted">{t('acc_model_card')}</p>
+      <List
+        rows={acc.items}
+        cols={[
+          ['#', (r) => <Link href={`/lots/${r.lot_id}`}>#{r.lot_id} {r.settlement}</Link>],
+          [t('amount'), (r) => fmtAmd(r.amount) + (r.guarantee_percent !== null ? ` · ${r.guarantee_percent}%` : '')],
+          [t('choose_card'), (r) => (r.amount === 0 ? '—' : r.mask)],
+          [t('status'), (r) => t('dep_' + r.status)],
+          ['', (r) => <span className="small muted">{fmtDate(r.updated_at || r.created_at)}</span>],
+        ]}
+      />
+    </div>
   );
 }
 

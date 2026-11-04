@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Db, Queryable } from '../../common/db';
 import { Clock, DAY, HOUR } from '../../common/clock';
 import { AppError, fail } from '../../common/errors';
-import { SettingsService, commissionFor, depositFor } from '../../common/settings';
+import { SettingsService, commissionFor, depositFor, guaranteeFor } from '../../common/settings';
 import { Audit } from '../../common/audit';
 import { Storage } from '../../adapters/storage';
 import { FakeKms, generateLotKeys } from '../../adapters/kms';
@@ -58,6 +58,8 @@ const step4 = z.object({
   published_at: z.string().datetime({ offset: true }).nullish(),
   registration_opens_at: z.string().datetime({ offset: true }).nullish(),
   allow_late_registration: z.boolean().optional(),
+  // PRD v2 решение 6: взнос участника в % (0–10, шаг 0,1); не передан — по умолчанию из настроек
+  guarantee_percent: z.number().min(0).max(10).optional(),
 });
 
 /** PRD v2 §2: статусы лота для покупателя и порядок в каталоге. */
@@ -120,9 +122,11 @@ export class LotsService {
       await this.validateTerms(v.start_price, new Date(v.opens_at), new Date(v.closes_at), null);
       LotsService.validateDates(v.published_at, v.registration_opens_at, v.opens_at);
       const s = await this.settings.all();
+      const bp = v.guarantee_percent === undefined ? Number(s.guarantee_default_bp ?? 100) : Math.round(v.guarantee_percent * 100);
+      if (bp > Number(s.guarantee_max_bp ?? 1000)) fail('GUARANTEE_TOO_HIGH', 400, { maxPercent: Number(s.guarantee_max_bp ?? 1000) / 100 });
       await this.db.q(
-        `UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, published_at=$6, registration_opens_at=$7, allow_late_registration=$8, draft_step=GREATEST(draft_step,5) WHERE id=$1`,
-        [lotId, v.start_price, v.opens_at, v.closes_at, depositFor(v.start_price, s), v.published_at ?? null, v.registration_opens_at ?? null, v.allow_late_registration ?? true],
+        `UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, published_at=$6, registration_opens_at=$7, allow_late_registration=$8, guarantee_bp=$9, draft_step=GREATEST(draft_step,5) WHERE id=$1`,
+        [lotId, v.start_price, v.opens_at, v.closes_at, guaranteeFor(v.start_price, bp, s), v.published_at ?? null, v.registration_opens_at ?? null, v.allow_late_registration ?? true, bp],
       );
       return this.draft(user, lotId);
     } else if (step !== 3 && step !== 5) fail('STEP_INVALID');
@@ -239,7 +243,7 @@ export class LotsService {
       valuations: await this.valuations(lot.property_id),
       moderation: mod,
       preview: lot.start_price
-        ? { deposit: depositFor(lot.start_price, s), commission: commissionFor(lot.start_price, s), suggestedPlan: (await this.plans.suggestFor(lot.start_price))?.code ?? null }
+        ? { deposit: guaranteeFor(lot.start_price, lot.guarantee_bp, s), guaranteePercent: lot.guarantee_bp === null || lot.guarantee_bp === undefined ? null : lot.guarantee_bp / 100, commission: commissionFor(lot.start_price, s), suggestedPlan: (await this.plans.suggestFor(lot.start_price))?.code ?? null }
         : null,
       submitBlockers: [
         ...(user.kyc_status !== 'verified' ? ['KYC_REQUIRED'] : []),
@@ -322,7 +326,7 @@ export class LotsService {
             keys.publicKey,
             this.kms.wrap(lotId, keys.privateKey),
             JSON.stringify(snapshot),
-            depositFor(lot.start_price, s),
+            guaranteeFor(lot.start_price, lot.guarantee_bp, s),
             JSON.stringify({ ...Object.fromEntries(VERIFICATION_KEYS.map((k) => [k, !!checklist[k]])), checked_at: now.toISOString() }),
           ],
         );
@@ -412,6 +416,7 @@ export class LotsService {
       allow_late_registration: l.allow_late_registration ?? true,
       stage: this.stage(l),
       deposit_amount: l.deposit_amount,
+      guarantee_percent: l.guarantee_bp === null || l.guarantee_bp === undefined ? null : l.guarantee_bp / 100,
       extended_at: l.extended_at,
       draft_step: l.draft_step,
       relaunched_from: l.relaunched_from,
