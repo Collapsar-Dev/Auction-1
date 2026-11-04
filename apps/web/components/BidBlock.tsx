@@ -30,20 +30,62 @@ export function BidBlock({ data, reload }: { data: any; reload: () => void }) {
           {t('soon_text')} <Countdown to={lot.opens_at} onDone={reload} />
         </p>
       )}
-      {data.myBidRef ? <MyBid lotId={lot.id} /> : <Participate data={data} reload={reload} />}
+      {data.myBidRef ? <MyBid data={data} reload={reload} /> : <Participate data={data} reload={reload} />}
       {!me && <span hidden />}
     </div>
   );
 }
 
-function MyBid({ lotId }: { lotId: number }) {
-  const { t } = useApp();
+/** PRD v2 решение 9: своя ставка, «осталось изменений N из M», история версий и изменение. */
+function MyBid({ data, reload }: { data: any; reload: () => void }) {
+  const { t, lang } = useApp();
+  const lotId = data.lot.id;
   const [b, setB] = useState<any>(null);
+  const [editing, setEditing] = useState(false);
+  const load = () => api(`/lots/${lotId}/my-bids`).then((r) => setB(r.bid));
   useEffect(() => {
-    api(`/lots/${lotId}/my-bids`).then((r) => setB(r.bid));
+    load();
   }, [lotId]);
   if (!b) return <p className="muted">{t('loading')}</p>;
-  return <Receipt r={b} />;
+  const max = b.changesLeft + b.version - 1;
+  return (
+    <div className="stack">
+      <Receipt r={b} />
+      <div className={b.changesLeft ? 'notice' : 'notice warn'}>
+        <b>{t('changes_left', { left: b.changesLeft, max })}</b>
+      </div>
+      {b.changesLeft > 0 && data.lot.status === 'live' && !editing && (
+        <button className="btn" onClick={() => setEditing(true)}>
+          {t('change_bid')}
+        </button>
+      )}
+      {editing && (
+        <BidForm
+          data={data}
+          lang={lang}
+          change={{ left: b.changesLeft - 1, max }}
+          reload={() => {
+            setEditing(false);
+            load();
+            reload();
+          }}
+        />
+      )}
+      {b.versions?.length > 1 && (
+        <div className="small stack">
+          <b>{t('my_versions')}</b>
+          {b.versions.map((v: any) => (
+            <div key={v.version} className="row gap">
+              <span>v{v.version}</span>
+              <b>{fmtAmd(v.amount)}</b>
+              <span className="muted">{fmtDate(v.serverReceivedAt, { ms: true })}</span>
+              {v.current && <span className="badge">{t('version_current')}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Receipt({ r }: { r: any }) {
@@ -214,7 +256,7 @@ function StepAction({ k, lotId, onBuy, onDeposit, busy, hasCard }: { k: string; 
   );
 }
 
-function BidForm({ data, reload, lang }: { data: any; reload: () => void; lang: any }) {
+function BidForm({ data, reload, lang, change }: { data: any; reload: () => void; lang: any; change?: { left: number; max: number } }) {
   const { t, tErr } = useApp();
   const stepUp = useStepUp();
   const [raw, setRaw] = useState('');
@@ -234,7 +276,7 @@ function BidForm({ data, reload, lang }: { data: any; reload: () => void; lang: 
     try {
       const token = await stepUp.run('bid');
       if (!token) return;
-      const r = await api(`/lots/${data.lot.id}/bids`, { body: { amount: raw, acceptRules: rules }, headers: { 'x-step-up': token, 'idempotency-key': key } });
+      const r = await api(`/lots/${data.lot.id}/bids`, { method: change ? 'PUT' : 'POST', body: { amount: raw, acceptRules: rules }, headers: { 'x-step-up': token, 'idempotency-key': key } });
       setReceipt(r);
       setConfirm(false);
       reload();
@@ -244,7 +286,7 @@ function BidForm({ data, reload, lang }: { data: any; reload: () => void; lang: 
       setBusy(false);
     }
   };
-  if (receipt) return <Receipt r={receipt} />;
+  if (receipt && !change) return <Receipt r={receipt} />;
   return (
     <>
       <label className="f">
@@ -254,24 +296,26 @@ function BidForm({ data, reload, lang }: { data: any; reload: () => void; lang: 
       <div className="small muted">{t('bid_hint', { min: fmtAmd(data.lot.start_price) })}</div>
       {raw && !valid && <div className="small error">{tErr(new ApiError('BID_TOO_LOW', 400, { min }))}</div>}
       <button className="btn primary" disabled={!valid} onClick={() => setConfirm(true)}>
-        {t('bid_button')}
+        {change ? t('change_bid') : t('bid_button')}
       </button>
       {err && <p className="error">{err}</p>}
       {confirm && (
         <div className="modal-bg">
           <div className="modal">
-            <h3>{t('bid_confirm_title')}</h3>
+            <h3>{change ? t('change_confirm_title') : t('bid_confirm_title')}</h3>
             <div className="big-price">{fmtAmd(amount)}</div>
             <div className="small">
               {t('in_words')}: <i>{amountInWords(amount, lang)}</i>
             </div>
-            <div className="notice bad">{t('bid_warning')}</div>
-            <label className="check small">
-              <input type="checkbox" checked={rules} onChange={(e) => setRules(e.target.checked)} /> {t('accept_rules')}
-            </label>
+            <div className="notice bad">{change ? t('change_warning', change) : t('bid_warning', { n: data.bidMaxChanges ?? 3 })}</div>
+            {!change && (
+              <label className="check small">
+                <input type="checkbox" checked={rules} onChange={(e) => setRules(e.target.checked)} /> {t('accept_rules')}
+              </label>
+            )}
             {err && <p className="error">{err}</p>}
             <div className="row gap">
-              <button className="btn primary" disabled={!rules || busy} onClick={submit}>
+              <button className="btn primary" disabled={(!rules && !change) || busy} onClick={submit}>
                 {t('confirm_sms')}
               </button>
               <button className="btn ghost" onClick={() => setConfirm(false)}>

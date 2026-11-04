@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -137,6 +137,12 @@ export class LotsController {
   async bid(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() req: Request) {
     const key = (req.headers['idempotency-key'] as string) || b?.idempotencyKey;
     return this.bids.place(await this.auth.user(req), id, { amount: b?.amount, idempotencyKey: key, acceptRules: !!b?.acceptRules }, stepUp(req), fp(req));
+  }
+  /** PRD v2 решение 9: изменить свою ставку (до settings.bid_max_changes раз) */
+  @Put('lots/:id/bids')
+  async changeBid(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() req: Request) {
+    const key = String(req.headers['idempotency-key'] || b?.idempotencyKey || '');
+    return this.bids.change(await this.auth.user(req), id, { amount: b?.amount, idempotencyKey: key }, stepUp(req), fp(req));
   }
   @Get('lots/:id/my-bids')
   async myBid(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {

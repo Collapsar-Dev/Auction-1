@@ -106,6 +106,7 @@ describe('SC-06 Снятие лота', () => {
     const adm = await h.staff();
     await adm.post(`/api/admin/lots/${lot2}/withdraw`).send({ reason: 'Документы оказались поддельными' }).expect(201);
     expect((await h.db.q(`SELECT 1 FROM bids WHERE lot_id=$1`, [lot2])).length).toBe(0);
+    expect((await h.db.q(`SELECT 1 FROM bid_versions v WHERE NOT EXISTS (SELECT 1 FROM bids b WHERE b.id=v.bid_id)`)).length).toBe(0);
     expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1`, [lot2])).status).toBe('releasing');
     await h.get(SchedulerService).tick();
     expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1`, [lot2])).status).toBe('released');

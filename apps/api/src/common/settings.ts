@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   sanction_days_2: 180,
   subscription_reminder_days: [14, 3],
   dispute_hours: 48, // SC-19
+  bid_max_changes: 3, // PRD v2 решение 9: сколько раз можно изменить ставку до конца торгов (в зачёт — последняя версия)
   second_chance_days: 5, // v0.2: отказ победителя в течение N дней после итога → лот 2-му месту (0 = выключено)
   results_show_user_ids: 1, // v0.2: после итога показывать ID участников рядом со ставками (1 = да, 0 = нет)
   consent_versions: { terms: '1.0', privacy: '1.0', biometrics: '1.0', auction_rules: '1.0', seller_offer: '1.0' },

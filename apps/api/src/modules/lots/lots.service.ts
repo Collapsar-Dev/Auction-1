@@ -336,6 +336,7 @@ export class LotsService {
         await t.q<{ user_id: number }>(`SELECT DISTINCT user_id FROM deposits WHERE lot_id=$1 AND status IN ('pending','held') UNION SELECT user_id FROM bids WHERE lot_id=$1`, [lotId])
       ).map((r) => r.user_id);
       // ставки не вскрываются и удаляются
+      await t.q('DELETE FROM bid_versions WHERE bid_id IN (SELECT id FROM bids WHERE lot_id=$1)', [lotId]); // история версий удаляется вместе со ставками
       await t.q('DELETE FROM bids WHERE lot_id=$1', [lotId]);
       await t.q(`UPDATE deposits SET status='releasing', updated_at=$2 WHERE lot_id=$1 AND status IN ('pending','held')`, [lotId, this.clock.now()]);
       await t.q(`UPDATE lots SET status='withdrawn', ended_reason=$2, private_key_wrapped=NULL WHERE id=$1`, [lotId, asAdmin ? 'admin: ' + reason : 'seller']);
@@ -472,6 +473,7 @@ export class LotsService {
       isFavorite: viewer ? !!(await this.db.maybe('SELECT 1 FROM favorites WHERE user_id=$1 AND lot_id=$2', [viewer.id, lotId])) : false,
       valuations: await this.valuations(l.property_id),
       verification: await this.verificationOf(l),
+      bidMaxChanges: Number((await this.settings.all()).bid_max_changes ?? 3), // PRD v2 решение 9
     };
     if (viewer && !isOwner && ['scheduled', 'live'].includes(status)) {
       out.steps = await this.elig.steps(viewer, l);
