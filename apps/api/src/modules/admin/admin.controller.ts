@@ -87,6 +87,14 @@ export class AdminController {
     const s = await this.auth.staff(r);
     return this.admin.kycManual(s, id, b);
   }
+  /** PRD v2 решение 5: модератор возвращает попытку за лот или начисляет попытку (с причиной). */
+  @Post('users/:id/participations')
+  async participation(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() r: Request) {
+    const s = await this.auth.staff(r);
+    const v = z.object({ reason: z.string().min(3).max(500), lotId: z.number().int().positive().optional() }).parse(b ?? {});
+    return this.plans.grantCredit(s, id, v.reason, v.lotId);
+  }
+
   @Post('users/:id/grant-access')
   async grant(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() r: Request) {
     const s = await this.auth.staff(r, 'admin');

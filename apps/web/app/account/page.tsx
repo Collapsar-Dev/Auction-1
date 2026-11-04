@@ -186,9 +186,11 @@ function Access() {
   const [sub, setSub] = useState<any>(null);
   const [cards, setCards] = useState<any[]>([]);
   const [msg, setMsg] = useState('');
+  const [tries, setTries] = useState<any>(null);
   const load = () => {
     api('/plans').then(setPlans);
     api('/me/subscription').then(setSub);
+    api('/subscriptions/participations').then(setTries);
     api('/cards').then(setCards);
   };
   useEffect(load, []);
@@ -205,10 +207,10 @@ function Access() {
     }
   };
   const active = sub?.active || [];
-  const basic = plans.find((p) => p.code === 'basic');
-  const full = plans.find((p) => p.code === 'full');
-  const hasBasic = active.find((s: any) => s.plan_code === 'basic');
-  const hasFull = active.find((s: any) => s.plan_code === 'full');
+  // PRD v2: повышение на любой более дорогой тариф (доплата разницы, срок не меняется)
+  const curPlan = plans.find((p) => active.some((s: any) => s.plan_id === p.id));
+  const upgrades = curPlan ? plans.filter((p) => p.price > curPlan.price) : [];
+  const leftOf = (s: any) => tries?.subscriptions?.find((x: any) => x.id === s.id);
   return (
     <div className="stack">
       <p className="muted">{t('access_note')}</p>
@@ -216,6 +218,11 @@ function Access() {
       {active.map((s: any) => (
         <div key={s.id} className="notice ok">
           {s.name_i18n[lang]} — {t('active_until')} {fmtDate(s.ends_at)} {s.source === 'admin_grant' ? '(admin)' : ''}
+          {leftOf(s) && (
+            <div>
+              <b>{leftOf(s).limit === null ? t('tries_unlimited') : t('tries_left', { left: leftOf(s).left, limit: leftOf(s).limit })}</b>
+            </div>
+          )}
         </div>
       ))}
       <div className="grid">
@@ -225,17 +232,34 @@ function Access() {
             <div className="big-price">
               {fmtAmd(p.price)} <span className="small muted">{t('per_year')}</span>
             </div>
-            <p className="small">{p.max_start_price ? t('plan_basic_desc', { max: fmtAmd(p.max_start_price) }) : t('plan_full_desc')}</p>
+            <p className="small">
+              {p.participation_limit ? t('plan_tries', { n: p.participation_limit }) : p.max_start_price ? t('plan_basic_desc', { max: fmtAmd(p.max_start_price) }) : t('plan_unlimited')}
+              {p.sees_valuation_amount && <span className="muted"> · {t('plan_sees_valuation')}</span>}
+            </p>
             <button className="btn primary" disabled={!cards.length} onClick={() => run('/subscriptions', { plan: p.code })}>
               {active.find((s: any) => s.plan_code === p.code) ? t('renew') : t('buy')}
             </button>
           </div>
         ))}
       </div>
-      {hasBasic && !hasFull && basic && full && (
-        <button className="btn" onClick={() => run('/subscriptions/upgrade', { plan: 'full' })}>
-          {t('upgrade', { diff: fmtAmd(full.price - basic.price) })}
+      {upgrades.map((p) => (
+        <button key={p.id} className="btn" onClick={() => run('/subscriptions/upgrade', { plan: p.code })}>
+          {t('upgrade_to', { plan: p.name_i18n[lang], diff: fmtAmd(p.price - curPlan.price) })}
         </button>
+      ))}
+      {tries?.history?.length > 0 && (
+        <div className="card stack small">
+          <b>{t('tries_history')}</b>
+          {tries.history.map((c: any) => (
+            <div key={c.id} className="row gap">
+              <span className="muted">{fmtDate(c.created_at)}</span>
+              <span>{t('credit_' + c.type)}</span>
+              {c.lot_id && <Link href={`/lots/${c.lot_id}`}>#{c.lot_id}</Link>}
+              <b>{c.type === 'spent' ? '−1' : '+1'}</b>
+              {c.reason && <span className="muted">{c.reason}</span>}
+            </div>
+          ))}
+        </div>
       )}
       {!cards.length && (
         <Link href="/account?tab=cards" className="small">

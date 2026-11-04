@@ -43,6 +43,10 @@ export class H {
     await this.db.q(`INSERT INTO plans(code, name_i18n, price, duration_days, max_start_price) VALUES
       ('basic', '{"ru":"Базовый","en":"Basic","hy":"Հիմնական"}', 5000, 365, 2000000),
       ('full', '{"ru":"Полный","en":"Full","hy":"Լրիվ"}', 12000, 365, NULL)`);
+    // PRD v2: тариф по числу участий (в тестах лимит 2, чтобы быстро дойти до конца)
+    // is_active=false — не мешает подсказкам тарифа в тестах v1; подписки на него работают
+    await this.db.q(`INSERT INTO plans(code, name_i18n, price, duration_days, max_start_price, participation_limit, is_active) VALUES
+      ('standard', '{"ru":"Standard","en":"Standard","hy":"Standard"}', 5000, 365, NULL, 2, false)`);
     await this.db.q(
       `INSERT INTO users(username, role, password_hash, totp_secret, full_name, email, email_verified_at, lang) VALUES ('admin','admin',$1,$2,'Admin','admin@x.am',now(),'ru')`,
       [await argonHash('Admin123!'), STAFF_SECRET],
@@ -70,7 +74,7 @@ export class H {
   advance = (ms: number) => this.clock.advance(ms);
 
   /** Пользователь с нужным уровнем подготовки. Возвращает агент supertest с cookie сессии. */
-  async user(o: { kyc?: boolean; email?: boolean; card?: string; plan?: 'basic' | 'full' | null; name?: string; lang?: string; birth?: string } = {}) {
+  async user(o: { kyc?: boolean; email?: boolean; card?: string; plan?: 'basic' | 'full' | 'standard' | null; name?: string; lang?: string; birth?: string } = {}) {
     const phone = '+3749' + String(1000000 + this.phoneSeq++).slice(-7);
     const name = o.name ?? 'Test User ' + this.phoneSeq;
     const kyc = o.kyc ?? true;
@@ -87,13 +91,14 @@ export class H {
     }
     if (o.plan) {
       const p = await this.db.one(`SELECT * FROM plans WHERE code=$1`, [o.plan]);
-      await this.db.q(`INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,'paid',$5)`, [
+      await this.db.q(`INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, source, created_at, participation_limit) VALUES ($1,$2,$3,$4,$5,$6,'paid',$5,$7)`, [
         u.id,
         p.id,
         p.price,
         p.max_start_price,
         new Date(this.clock.ms() - DAY),
         new Date(this.clock.ms() + 300 * DAY),
+        p.participation_limit,
       ]);
     }
     const agent = request.agent(this.http);

@@ -8,6 +8,7 @@ import { Audit } from '../../common/audit';
 import { FakeGateway } from '../../adapters/gateway';
 import { AuthService, User } from '../auth/auth.service';
 import { NotifyService } from '../notifications/notify.service';
+import { PlansService } from '../plans/plans.service';
 import { EligibilityService } from '../lots/eligibility.service';
 import { fmtAmd } from '../../common/format';
 import { RiskService } from '../risk/risk.service';
@@ -25,6 +26,7 @@ export class DepositsService {
     private notify: NotifyService,
     private elig: EligibilityService,
     private risk: RiskService,
+    private plans: PlansService,
   ) {}
 
   async place(user: User, lotId: number, cardId: number | undefined, stepUp: string | undefined, fp: { ua: string; ip: string }) {
@@ -50,6 +52,8 @@ export class DepositsService {
         lot.deposit_amount,
         now,
       ]);
+      // PRD v2: «Участвовать» = 1 попытка тарифа (повторно за тот же лот не списывается)
+      await this.plans.spend(user, lot, t);
       return { depositId: d.id as number, card: card!, amount: lot.deposit_amount as number };
     });
     await this.risk.recordFingerprint(user.id, fp.ua, fp.ip);
@@ -57,7 +61,10 @@ export class DepositsService {
     const order = await this.gw.holdByBinding(prep.card.binding_id, prep.amount, `deposit:${prep.depositId}`, s.hold_days, now);
     const st = await this.gw.getOrderStatus(order.orderId); // проверяем статус у шлюза сами
     if (!st || st.status !== 'approved') {
-      await this.db.q(`UPDATE deposits SET status='failed', gateway_order_id=$2, fail_reason='BANK_DECLINED', updated_at=$3 WHERE id=$1`, [prep.depositId, order.orderId, this.clock.now()]);
+      await this.db.tx(async (t) => {
+        await t.q(`UPDATE deposits SET status='failed', gateway_order_id=$2, fail_reason='BANK_DECLINED', updated_at=$3 WHERE id=$1`, [prep.depositId, order.orderId, this.clock.now()]);
+        await this.plans.refund(user.id, lotId, 'BANK_DECLINED', null, t); // банк отказал — попытка не сгорает
+      });
       fail('DEPOSIT_DECLINED', 402, { canChooseAnotherCard: true });
     }
     await this.db.q(`UPDATE deposits SET status='held', gateway_order_id=$2, hold_expires_at=$3, updated_at=$4 WHERE id=$1`, [prep.depositId, order.orderId, st!.holdExpiresAt, this.clock.now()]);

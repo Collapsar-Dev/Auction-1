@@ -3,7 +3,7 @@ import { Db, Queryable } from '../../common/db';
 import { Clock } from '../../common/clock';
 import { AppError } from '../../common/errors';
 import { SettingsService } from '../../common/settings';
-import { PlansService } from '../plans/plans.service';
+import { PlansService, participationsLeft } from '../plans/plans.service';
 import { User } from '../auth/auth.service';
 
 export interface LotLite {
@@ -82,13 +82,13 @@ export class EligibilityService {
         { key: 'deposit', done: false, data: { amount: lot.deposit_amount } },
       ];
     }
-    const sub = await this.plans.coveringFor(user.id, lot.start_price);
+    const sub = await this.plans.coveringFor(user.id, lot.start_price, this.db, lot.id);
     const dep = await this.db.maybe(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2 AND status IN ('pending','held')`, [lot.id, user.id]);
     return [
       { key: 'login', done: true },
       { key: 'email', done: !!user.email_verified_at },
       { key: 'kyc', done: user.kyc_status === 'verified' },
-      { key: 'subscription', done: !!sub, data: { plan: suggested?.code, has: sub?.plan_code ?? null } },
+      { key: 'subscription', done: !!sub, data: { plan: suggested?.code, has: sub?.plan_code ?? null, left: sub ? participationsLeft(sub) : null, limit: sub?.participation_limit ?? null, exhausted: !sub && (await this.plans.exhaustedFor(user.id, lot.start_price)) } },
       { key: 'deposit', done: dep?.status === 'held', data: { amount: lot.deposit_amount, status: dep?.status ?? null } },
     ];
   }
@@ -100,9 +100,11 @@ export class EligibilityService {
     if (user.kyc_status !== 'verified') throw new AppError('KYC_REQUIRED', 403);
     const sanction = await this.activeSanction(user, t);
     if (sanction) throw new AppError(sanction.kind === 'funds_request' ? 'FUNDS_PROOF_REQUESTED' : 'BIDDING_BLOCKED', 403, { until: sanction.ends_at, kind: sanction.kind });
-    const sub = await this.plans.coveringFor(user.id, lot.start_price, t);
+    const sub = await this.plans.coveringFor(user.id, lot.start_price, t, lot.id);
     if (!sub) {
       const p = await this.plans.suggestFor(lot.start_price);
+      // PRD v2: доступ есть, но попытки кончились — отдельная понятная ошибка
+      if (await this.plans.exhaustedFor(user.id, lot.start_price, t)) throw new AppError('PARTICIPATIONS_EXHAUSTED', 403, { suggestedPlan: p?.code ?? null });
       throw new AppError('SUBSCRIPTION_REQUIRED', 403, { suggestedPlan: p?.code ?? null });
     }
     await this.checkLimits(user, lot, t);

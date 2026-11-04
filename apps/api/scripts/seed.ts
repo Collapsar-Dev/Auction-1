@@ -60,10 +60,14 @@ async function main() {
   const at = (ms: number) => new Date(now + ms);
 
   // ---------- тарифы ----------
-  await db.q(`INSERT INTO plans(code, name_i18n, price, duration_days, max_start_price) VALUES
-    ('basic', '{"hy":"Հիմնական","ru":"Базовый","en":"Basic"}', 5000, 365, 2000000),
-    ('full',  '{"hy":"Լրիվ","ru":"Полный","en":"Full"}', 12000, 365, NULL)`);
-  const plans = await db.q<{ id: number; code: string; max_start_price: number | null; price: number }>('SELECT * FROM plans');
+  // PRD v2: тарифы по числу участий. Тарифы v1 (по цене лота) оставлены неактивными — для истории.
+  await db.q(`INSERT INTO plans(code, name_i18n, price, duration_days, max_start_price, participation_limit, sees_valuation_amount, is_active) VALUES
+    ('basic', '{"hy":"Հիմնական","ru":"Базовый","en":"Basic"}', 5000, 365, 2000000, NULL, false, false),
+    ('full',  '{"hy":"Լրիվ","ru":"Полный","en":"Full"}', 12000, 365, NULL, NULL, false, false),
+    ('standard', '{"hy":"Standard","ru":"Standard","en":"Standard"}', 5000, 365, NULL, 10, false, true),
+    ('vip',      '{"hy":"VIP","ru":"VIP","en":"VIP"}', 15000, 365, NULL, 50, false, true),
+    ('premium',  '{"hy":"Premium","ru":"Premium","en":"Premium"}', 50000, 365, NULL, NULL, true, true)`);
+  const plans = await db.q<{ id: number; code: string; max_start_price: number | null; price: number; participation_limit: number | null }>('SELECT * FROM plans');
   const plan = (c: string) => plans.find((p) => p.code === c)!;
 
   // ---------- сотрудники (AU-05) ----------
@@ -78,16 +82,16 @@ async function main() {
   type U = { key: string; phone: string; name: string; email?: string; kyc?: boolean; card?: string; plan?: string; lang?: string; birth?: string };
   const people: U[] = [
     { key: 'anna', phone: '+37491000001', name: 'Anna Hakobyan', email: 'anna@example.am', kyc: true, card: '4111111111111111', lang: 'ru' },
-    { key: 'aram', phone: '+37491000002', name: 'Aram Petrosyan', email: 'aram@example.am', kyc: true, card: '4111111111112222', plan: 'full', lang: 'hy' },
-    { key: 'lilit', phone: '+37491000003', name: 'Lilit Sargsyan', email: 'lilit@example.am', kyc: true, card: '4111111111113333', plan: 'full', lang: 'ru' },
+    { key: 'aram', phone: '+37491000002', name: 'Aram Petrosyan', email: 'aram@example.am', kyc: true, card: '4111111111112222', plan: 'premium', lang: 'hy' },
+    { key: 'lilit', phone: '+37491000003', name: 'Lilit Sargsyan', email: 'lilit@example.am', kyc: true, card: '4111111111113333', plan: 'vip', lang: 'ru' },
     { key: 'davit', phone: '+37491000004', name: 'Davit Grigoryan', email: 'davit@example.am', kyc: true, card: '4111111111114444', lang: 'en' },
     { key: 'narek', phone: '+37491000005', name: '', lang: 'ru' },
-    { key: 'gor', phone: '+37491000006', name: 'Gor Vardanyan', email: 'gor@example.am', kyc: true, card: '4111111111116666', plan: 'full', lang: 'ru' },
-    { key: 'karen', phone: '+37491000007', name: 'Karen Mkrtchyan', email: 'karen@example.am', kyc: true, card: '4111111111117777', plan: 'full', lang: 'ru' },
-    { key: 'mane', phone: '+37491000008', name: 'Mane Avetisyan', email: 'mane@example.am', kyc: true, card: '4000000000000002', plan: 'full', lang: 'ru' },
-    { key: 'sona', phone: '+37491000009', name: 'Sona Harutyunyan', email: 'sona@example.am', kyc: true, card: '4111111111119999', plan: 'basic', lang: 'ru' },
-    { key: 'tigran', phone: '+37491000010', name: 'Tigran Ghazaryan', email: 'tigran@example.am', kyc: true, card: '4111111111110010', plan: 'full', lang: 'ru' },
-    { key: 'ani', phone: '+37491000011', name: 'Ani Simonyan', email: 'ani+fail@example.am', kyc: true, card: '4111111111110011', plan: 'full', lang: 'ru' },
+    { key: 'gor', phone: '+37491000006', name: 'Gor Vardanyan', email: 'gor@example.am', kyc: true, card: '4111111111116666', plan: 'vip', lang: 'ru' },
+    { key: 'karen', phone: '+37491000007', name: 'Karen Mkrtchyan', email: 'karen@example.am', kyc: true, card: '4111111111117777', plan: 'vip', lang: 'ru' },
+    { key: 'mane', phone: '+37491000008', name: 'Mane Avetisyan', email: 'mane@example.am', kyc: true, card: '4000000000000002', plan: 'vip', lang: 'ru' },
+    { key: 'sona', phone: '+37491000009', name: 'Sona Harutyunyan', email: 'sona@example.am', kyc: true, card: '4111111111119999', plan: 'standard', lang: 'ru' },
+    { key: 'tigran', phone: '+37491000010', name: 'Tigran Ghazaryan', email: 'tigran@example.am', kyc: true, card: '4111111111110010', plan: 'vip', lang: 'ru' },
+    { key: 'ani', phone: '+37491000011', name: 'Ani Simonyan', email: 'ani+fail@example.am', kyc: true, card: '4111111111110011', plan: 'vip', lang: 'ru' },
   ];
   const U: Record<string, { id: number; cardId?: number; bindingId?: string; subId?: number }> = {};
   const versions: any = s.consent_versions;
@@ -128,8 +132,8 @@ async function main() {
         at(-15 * DAY),
       ]);
       const sub = await db.one(
-        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$5) RETURNING id`,
-        [u.id, pl.id, pl.price, pl.max_start_price, at(-15 * DAY), at(350 * DAY), pay.id],
+        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at, participation_limit) VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$5,$8) RETURNING id`,
+        [u.id, pl.id, pl.price, pl.max_start_price, at(-15 * DAY), at(350 * DAY), pay.id, pl.participation_limit],
       );
       U[p.key].subId = sub.id;
     }
@@ -182,7 +186,7 @@ async function main() {
     {
       key: 'live_cheap', seller: 'karen', type: 'apartment', region: 'Lori', settlement: 'Vanadzor', street: 'Tigran Mets Ave', price: 1_800_000,
       opens: -6 * HOUR, closes: 4 * DAY, status: 'live', area: 38, rooms: 1, extra: apt(4, 9), lat: 40.8128, lng: 44.4883,
-      desc: { hy: 'Փոքր բնակարան ուսանողների համար։', ru: 'Небольшая однокомнатная квартира — подходит тарифу «Базовый».', en: 'Small studio — fits the Basic plan.' },
+      desc: { hy: 'Փոքր բնակարան ուսանողների համար։', ru: 'Небольшая однокомнатная квартира.', en: 'Small studio.' },
     },
     {
       key: 'soon_house', seller: 'anna', type: 'house', region: 'Tavush', settlement: 'Dilijan', street: 'Sharambeyan St', price: 120_000_000,
@@ -351,14 +355,14 @@ async function main() {
   console.log(`
 Вход пользователей: телефон → SMS-код (код показывается на экране в dev-режиме и в /dev).
   +374 91 000001  Анна    — продавец (лоты, черновик), без годового доступа
-  +374 91 000002  Арам    — Полный доступ, 2 активные ставки (лимит R-20 достигнут)
-  +374 91 000003  Лилит   — Полный доступ, депозиты внесены, ставок на «Кентрон» и «Гюмри» нет — можно ставить
+  +374 91 000002  Арам    — Premium, 2 активные ставки (лимит R-20 достигнут)
+  +374 91 000003  Лилит   — VIP (50 участий), депозиты внесены, ставок на «Кентрон» и «Гюмри» нет — можно ставить
   +374 91 000004  Давит   — личность проверена, карта есть, доступа нет (проверить покупку тарифа)
   +374 91 000005  Нарек   — новый: нет email, нет проверки личности, нет согласий
   +374 91 000006  Гор     — «Инвестор», выиграл Арабкир (ждёт его подтверждения) и Давташен (сделка подтверждена)
   +374 91 000007  Карен   — второй продавец (лот на модерации, лот без ставок → перезапуск)
   +374 91 000008  Мане    — карта 4000…0002: банк отклоняет депозит
-  +374 91 000009  Сона    — тариф «Базовый» (лоты до 2 000 000 ֏), можно повысить до «Полного»
+  +374 91 000009  Сона    — тариф Standard (10 участий), можно повысить до VIP
   +374 91 000010  Тигран  — блокировка ставок 30 дней (лестница мер)
   +374 91 000011  Ани     — email с «+fail»: письма не доставляются, видны повторы в админке
 Сотрудники (/staff/login): admin / Admin123!   moderator / Moder123!   + код TOTP (смотрите /dev или добавьте секрет в Google Authenticator)

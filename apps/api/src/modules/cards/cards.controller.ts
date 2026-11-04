@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { AuthService } from '../auth/auth.service';
 import { CardsService } from './cards.service';
-import { PlansService } from '../plans/plans.service';
+import { PlansService, participationsLeft } from '../plans/plans.service';
 import { KycService } from '../kyc/kyc.service';
 import { Db } from '../../common/db';
 import { fail } from '../../common/errors';
@@ -30,6 +30,14 @@ export class AccountController {
   @Delete('cards/:id')
   async remove(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
     return this.cards.remove(await this.auth.user(req), id, stepUp(req));
+  }
+
+  /** F3.2 «Мой тариф»: действующие доступы с остатком попыток и история списаний/возвратов. */
+  @Get('subscriptions/participations')
+  async participations(@Req() req: Request) {
+    const u = await this.auth.user(req);
+    const subs = await this.plans.active(u.id);
+    return { subscriptions: subs.map((s) => ({ id: s.id, plan: s.plan_code, endsAt: s.ends_at, limit: s.participation_limit, used: s.participations_used, left: participationsLeft(s) })), history: await this.plans.credits(u.id) };
   }
 
   @Post('subscriptions')

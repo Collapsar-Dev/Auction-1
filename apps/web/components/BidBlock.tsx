@@ -195,7 +195,8 @@ function Participate({ data, reload }: { data: any; reload: () => void }) {
               <span className="grow">
                 {t('step_' + s.key)}
                 {s.key === 'deposit' && <span className="muted small"> · {fmtAmd(s.data.amount)}</span>}
-                {s.key === 'subscription' && plan && <span className="muted small"> · {plan === 'full' ? 'Полный / Full' : 'Basic'}</span>}
+                {s.key === 'subscription' && plan && <span className="muted small"> · {plan}</span>}
+                {s.key === 'subscription' && s.done && s.data?.left !== null && s.data?.left !== undefined && <span className="muted small"> · {t('tries_left', { left: s.data.left, limit: s.data.limit })}</span>}
               </span>
               {!s.done && i === firstUndone && <StepAction k={s.key} lotId={data.lot.id} onBuy={buyAccess} onDeposit={placeDeposit} busy={busy} hasCard={cards.length > 0} />}
             </li>

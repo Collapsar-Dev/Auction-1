@@ -341,6 +341,9 @@ export class LotsService {
       await t.q(`UPDATE deposits SET status='releasing', updated_at=$2 WHERE lot_id=$1 AND status IN ('pending','held')`, [lotId, this.clock.now()]);
       await t.q(`UPDATE lots SET status='withdrawn', ended_reason=$2, private_key_wrapped=NULL WHERE id=$1`, [lotId, asAdmin ? 'admin: ' + reason : 'seller']);
       await this.audit.log(actor.id, asAdmin ? 'lot.withdrawn_by_admin' : 'lot.withdrawn', 'lot', lotId, { status: lot.status }, { reason, bids: asAdmin ? undefined : 0 }, t);
+      // PRD v2 решение 5: лот отменён — попытки тарифа возвращаются всем, кто нажал «Участвовать» (+ pop-up)
+      const credited = await t.q<{ user_id: number }>(`SELECT DISTINCT user_id FROM participation_credits WHERE lot_id=$1`, [lotId]);
+      for (const c of credited) await this.plans.refund(c.user_id, lotId, asAdmin ? 'lot_cancelled_admin' : 'lot_cancelled_seller', actor.id, t);
       for (const u of participants) await this.notify.queue(u, 'email', 'lot_withdrawn', { lotId, reason: reason || '—' }, { dedupeKey: `withdrawn:${lotId}:${u}` }, t);
       return { lot, participants };
     });

@@ -173,6 +173,19 @@ export class MeController {
     return rows.map((r) => ({ ...r, body: notificationBody(r), sealed: undefined }));
   }
 
+  /** Pop-up в кабинете (PRD v2: возврат попытки и т. п.) — непрочитанные inapp-уведомления. */
+  @Get('popups')
+  async popups(@Req() req: Request) {
+    const u = await this.auth.user(req);
+    return this.db.q(`SELECT id, template, subject, body, payload, created_at FROM notifications WHERE user_id=$1 AND channel='inapp' AND read_at IS NULL ORDER BY id`, [u.id]);
+  }
+  @Post('popups/:id/read')
+  async popupRead(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    const u = await this.auth.user(req);
+    await this.db.q(`UPDATE notifications SET read_at=$3 WHERE id=$1 AND user_id=$2 AND channel='inapp'`, [id, u.id, this.clock.now()]);
+    return { ok: true };
+  }
+
   // SC-23 Статус «Инвестор»
   @Post('funds-proof')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))

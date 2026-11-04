@@ -16,6 +16,9 @@ export interface Plan {
   price: number;
   duration_days: number;
   max_start_price: number | null;
+  /** PRD v2: сколько участий даёт тариф; null = без лимита */
+  participation_limit: number | null;
+  sees_valuation_amount: boolean;
   is_active: boolean;
 }
 export interface Subscription {
@@ -29,9 +32,20 @@ export interface Subscription {
   starts_at: Date;
   ends_at: Date;
   source: string;
+  participation_limit: number | null;
+  participations_used: number;
 }
 
 export const covers = (maxStart: number | null, startPrice: number) => maxStart === null || maxStart >= startPrice;
+/** Сколько попыток осталось; null = без лимита */
+export const participationsLeft = (s: Pick<Subscription, 'participation_limit' | 'participations_used'>) =>
+  s.participation_limit === null || s.participation_limit === undefined ? null : Math.max(0, s.participation_limit - s.participations_used);
+const hasLeft = (s: Subscription) => { const l = participationsLeft(s); return l === null || l > 0; };
+
+const CREDIT_TEXT: Record<string, Record<string, string>> = {
+  refunded: { ru: 'Попытка возвращена', en: 'Participation returned', hy: 'Մասնակցության փորձը վերադարձվեց' },
+  granted: { ru: 'Начислена попытка участия', en: 'Participation added', hy: 'Ավելացվեց մասնակցության փորձ' },
+};
 
 /** 6.5 Годовой доступ к участию (SC-21, R-18). */
 @Injectable()
@@ -56,9 +70,96 @@ export class PlansService {
       [userId],
     );
   }
-  /** Подходящий действующий доступ для лота с такой начальной ценой (R-18). */
-  async coveringFor(userId: number, startPrice: number, t: Queryable = this.db) {
-    return (await this.active(userId, t)).find((s) => covers(s.max_start_price, startPrice)) ?? null;
+  /** Попытка, уже списанная за этот лот и не возвращённая (повторно не списывается). */
+  async spentFor(userId: number, lotId: number, t: Queryable = this.db) {
+    return t.maybe<{ subscription_id: number }>(
+      `SELECT subscription_id FROM participation_credits WHERE user_id=$1 AND lot_id=$2
+       GROUP BY subscription_id HAVING sum(CASE type WHEN 'spent' THEN 1 WHEN 'refunded' THEN -1 ELSE 0 END) > 0 LIMIT 1`,
+      [userId, lotId],
+    );
+  }
+
+  /**
+   * Подходящий действующий доступ для лота (R-18 по цене + PRD v2 по числу участий).
+   * Если за этот лот попытка уже списана — тот же доступ, даже если попыток больше нет.
+   */
+  async coveringFor(userId: number, startPrice: number, t: Queryable = this.db, lotId?: number) {
+    const subs = (await this.active(userId, t)).filter((s) => covers(s.max_start_price, startPrice));
+    if (lotId) {
+      const spent = await this.spentFor(userId, lotId, t);
+      if (spent) return subs.find((s) => s.id === spent.subscription_id) ?? null;
+    }
+    return subs.find(hasLeft) ?? null;
+  }
+  /** Есть доступ по цене, но попытки кончились — для понятной ошибки. */
+  async exhaustedFor(userId: number, startPrice: number, t: Queryable = this.db) {
+    return (await this.active(userId, t)).some((s) => covers(s.max_start_price, startPrice) && !hasLeft(s));
+  }
+
+  /** PRD v2: «Участвовать» = 1 попытка. Вызывается внутри транзакции регистрации на лот. */
+  async spend(user: User, lot: { id: number; start_price: number }, t: Queryable) {
+    if (await this.spentFor(user.id, lot.id, t)) return null; // уже участвует
+    const sub = await this.coveringFor(user.id, lot.start_price, t);
+    if (!sub) fail('SUBSCRIPTION_REQUIRED', 403);
+    const locked = await t.one<Subscription>('SELECT * FROM subscriptions WHERE id=$1 FOR UPDATE', [sub!.id]);
+    if (!hasLeft(locked)) fail('PARTICIPATIONS_EXHAUSTED', 403);
+    await t.q('UPDATE subscriptions SET participations_used = participations_used + 1 WHERE id=$1', [sub!.id]);
+    await t.q(`INSERT INTO participation_credits(subscription_id, user_id, lot_id, type, created_at) VALUES ($1,$2,$3,'spent',$4)`, [sub!.id, user.id, lot.id, this.clock.now()]);
+    await this.audit.log(user.id, 'participation.spent', 'subscription', sub!.id, null, { lotId: lot.id }, t);
+    return sub;
+  }
+
+  /** Вернуть попытку за лот (отмена лота, отказ банка, решение модератора) + pop-up пользователю. */
+  async refund(userId: number, lotId: number, reason: string, actorId: number | null, t: Queryable) {
+    const spent = await this.spentFor(userId, lotId, t);
+    if (!spent) return false;
+    await t.q('UPDATE subscriptions SET participations_used = GREATEST(participations_used - 1, 0) WHERE id=$1', [spent.subscription_id]);
+    await t.q(`INSERT INTO participation_credits(subscription_id, user_id, lot_id, type, reason, actor_id, created_at) VALUES ($1,$2,$3,'refunded',$4,$5,$6)`, [
+      spent.subscription_id, userId, lotId, reason, actorId, this.clock.now(),
+    ]);
+    await this.audit.log(actorId, 'participation.refunded', 'subscription', spent.subscription_id, null, { userId, lotId, reason }, t);
+    await this.popup(userId, 'refunded', { lotId, reason }, t);
+    return true;
+  }
+
+  /** Модератор начисляет попытку без привязки к лоту (с причиной в журнале). */
+  async grantCredit(admin: User, userId: number, reason: string, lotId?: number) {
+    if (!reason) fail('REASON_REQUIRED');
+    return this.db.tx(async (t) => {
+      if (lotId && (await this.refund(userId, lotId, reason, admin.id, t))) return { refunded: true };
+      const sub = (await this.active(userId, t)).find((s) => s.participation_limit !== null);
+      if (!sub) fail('NO_LIMITED_SUBSCRIPTION');
+      await t.q('UPDATE subscriptions SET participations_used = participations_used - 1 WHERE id=$1', [sub!.id]);
+      await t.q(`INSERT INTO participation_credits(subscription_id, user_id, lot_id, type, reason, actor_id, created_at) VALUES ($1,$2,$3,'granted',$4,$5,$6)`, [
+        sub!.id, userId, lotId ?? null, reason, admin.id, this.clock.now(),
+      ]);
+      await this.audit.log(admin.id, 'participation.granted', 'subscription', sub!.id, null, { userId, lotId, reason }, t);
+      await this.popup(userId, 'granted', { lotId, reason }, t);
+      return { granted: true };
+    });
+  }
+
+  /** История попыток для «Мой тариф» (F3.2). */
+  credits(userId: number) {
+    return this.db.q(
+      `SELECT c.id, c.lot_id, c.type, c.reason, c.created_at, s.plan_id FROM participation_credits c JOIN subscriptions s ON s.id=c.subscription_id
+       WHERE c.user_id=$1 ORDER BY c.id DESC LIMIT 200`,
+      [userId],
+    );
+  }
+
+  /** Pop-up в кабинете: уведомление inapp, непрочитанное, пока пользователь его не закроет. */
+  private async popup(userId: number, kind: 'refunded' | 'granted', p: { lotId?: number; reason: string }, t: Queryable) {
+    const u = await t.maybe<{ lang: string }>('SELECT lang FROM users WHERE id=$1', [userId]);
+    const lang = u?.lang ?? 'hy';
+    const subs = await this.active(userId, t);
+    const left = subs.map(participationsLeft).find((x) => x !== null);
+    const title = CREDIT_TEXT[kind][lang] ?? CREDIT_TEXT[kind].ru;
+    const body = `${title}${p.lotId ? ` · #${p.lotId}` : ''}${p.reason ? ` — ${p.reason}` : ''}${left !== undefined && left !== null ? ` · ${left}` : ''}`;
+    await t.q(
+      `INSERT INTO notifications(user_id, channel, template, lang, subject, body, payload, status, sent_at, created_at) VALUES ($1,'inapp',$2,$3,$4,$5,$6,'sent',$7,$7)`,
+      [userId, 'participation_' + kind, lang, title, body, JSON.stringify({ ...p, left: left ?? null }), this.clock.now()],
+    );
   }
   /** Самый дешёвый активный тариф, покрывающий лот — его сайт подсказывает сразу. */
   async suggestFor(startPrice: number) {
@@ -108,9 +209,9 @@ export class PlansService {
       const starts = same ? new Date(same.ends_at) : now;
       const ends = new Date(starts.getTime() + plan!.duration_days * DAY);
       const sub = await t.one(
-        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8) RETURNING *`,
-        [user.id, plan!.id, plan!.price, plan!.max_start_price, starts, ends, pay.paymentId, now],
+        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at, participation_limit)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,$9) RETURNING *`,
+        [user.id, plan!.id, plan!.price, plan!.max_start_price, starts, ends, pay.paymentId, now, plan!.participation_limit],
       );
       return { ...pay, sub, renewal: !!same };
     });
@@ -137,9 +238,9 @@ export class PlansService {
       const now = this.clock.now();
       await t.q(`UPDATE subscriptions SET status='upgraded' WHERE id=$1`, [cur!.id]);
       const sub = await t.one(
-        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8) RETURNING *`,
-        [user.id, to!.id, diff, to!.max_start_price, now, cur!.ends_at, pay.paymentId, now],
+        `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, payment_id, source, created_at, participation_limit, participations_used)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'paid',$8,$9,$10) RETURNING *`,
+        [user.id, to!.id, diff, to!.max_start_price, now, cur!.ends_at, pay.paymentId, now, to!.participation_limit, cur!.participations_used],
       );
       return { ...pay, sub, diff };
     });
@@ -157,9 +258,9 @@ export class PlansService {
     if (!plan) fail('PLAN_NOT_FOUND', 404);
     const now = this.clock.now();
     const sub = await this.db.one(
-      `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, source, grant_reason, created_at)
-       VALUES ($1,$2,0,$3,$4,$5,'admin_grant',$6,$4) RETURNING *`,
-      [userId, plan!.id, plan!.max_start_price, now, new Date(now.getTime() + (days ?? plan!.duration_days) * DAY), reason],
+      `INSERT INTO subscriptions(user_id, plan_id, price_paid, max_start_price, starts_at, ends_at, source, grant_reason, created_at, participation_limit)
+       VALUES ($1,$2,0,$3,$4,$5,'admin_grant',$6,$4,$7) RETURNING *`,
+      [userId, plan!.id, plan!.max_start_price, now, new Date(now.getTime() + (days ?? plan!.duration_days) * DAY), reason, plan!.participation_limit],
     );
     await this.audit.log(adminId, 'subscription.granted', 'subscription', sub.id, null, { userId, plan: planCode, reason });
     return sub;
