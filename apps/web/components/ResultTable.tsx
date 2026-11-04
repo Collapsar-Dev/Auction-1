@@ -42,7 +42,10 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
           </Link>
         </div>
       )}
-      {result.secondChance?.transferred && <div className="notice warn">{t('second_chance_done')}</div>}
+      {result.secondChance?.transferred && <div className="notice warn">{t('second_chance_done', { place: result.secondChance.place ?? 2 })}</div>}
+      {result.bids.length > 1 && !result.secondChance?.days && result.secondChance?.chainPlaces > 1 && !result.secondChance.transferred && (
+        <div className="notice">{t('chain_note', { n: Math.min(result.secondChance.chainPlaces, result.bids.length) })}</div>
+      )}
       {result.bids.length > 1 && result.secondChance?.days > 0 && !result.secondChance.transferred && (
         <div className="notice">{t('second_chance_note', { days: result.secondChance.days, until: fmtDate(result.secondChance.until) })}</div>
       )}

@@ -597,8 +597,10 @@ export class LotsService {
       secondChance: {
         days: s.second_chance_days,
         until: s.second_chance_days ? new Date(new Date(r.revealed_at).getTime() + s.second_chance_days * DAY) : null,
-        transferred: deal?.round === 2,
+        transferred: (deal?.round ?? 1) > 1,
         transferredAt: deal?.transferred_at ?? null,
+        place: deal?.round ?? 1, // PRD v2: с какого места сейчас покупатель
+        chainPlaces: Number(s.chain_places ?? 1),
       },
     };
   }

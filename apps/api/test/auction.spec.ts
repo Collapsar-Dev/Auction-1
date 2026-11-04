@@ -245,16 +245,17 @@ describe('SC-11 / SC-12 / R-09 / R-10 Вскрытие и итог', () => {
     const deps = await h.db.q(`SELECT user_id, status FROM deposits WHERE lot_id=$1`, [lot]);
     const st = Object.fromEntries(deps.map((d) => [d.user_id, d.status]));
     expect(st[A.id]).toBe('held');
-    // v0.2: у 2-го места (C) депозит держится, пока действует «второй шанс»
-    expect([st[B.id], st[C.id], st[watcher.id]]).toEqual(['released', 'held', 'released']);
+    // PRD v2 решение 8: взнос держат места 1–3 (A, C, B) — сделка может перейти к ним; не ставившему — освобождён
+    expect([st[B.id], st[C.id], st[watcher.id]]).toEqual(['held', 'held', 'released']);
     expect((await h.outbox(C.id, 'results'))[0].body).toContain('2-м месте');
+    expect((await h.outbox(B.id, 'results'))[0].body).toContain('3-м месте');
     // письма: каждому участнику и продавцу + SMS-дубль
     for (const u of [A, B, C, seller]) {
       expect((await h.outbox(u.id, 'results')).length).toBe(1);
       expect((await h.outbox(u.id, 'results_sms')).length).toBe(1);
     }
     expect((await h.outbox(A.id, 'results'))[0].body).toContain('/deals/');
-    expect((await h.outbox(B.id, 'results'))[0].body).toContain('депозит освобождается');
+    expect((await h.outbox(B.id, 'results'))[0].body).toContain('остаётся заблокированным'); // PRD v2: 3-е место тоже ждёт
     // контрольные коды проверяемы любым
     const crypto = await import('crypto');
     for (const b of res.body.bids) expect(crypto.createHash('sha256').update(`${b.amount}${b.salt}${b.bidId}`).digest('hex')).toBe(b.commitment);

@@ -135,7 +135,18 @@ export class DepositsService {
     } else {
       const ok = d.gateway_order_id ? await this.gw.deposit(d.gateway_order_id) : true; // взнос 0 % — списывать нечего
       if (!ok) fail('CHARGE_FAILED', 402);
-      await this.db.q(`UPDATE deposits SET status='charged', updated_at=$2 WHERE id=$1`, [depositId, this.clock.now()]);
+      await this.db.tx(async (t) => {
+        await t.q(`UPDATE deposits SET status='charged', updated_at=$2 WHERE id=$1`, [depositId, this.clock.now()]);
+        // PRD v2 §6 вариант B: удержанный взнос — продавцу, доля платформы (forfeit_platform_bp) — платформе
+        const s = await this.settings.all(t);
+        const lot = await t.one<{ seller_id: number }>('SELECT seller_id FROM lots WHERE id=$1', [d.lot_id]);
+        const platform = Math.floor((Number(d.amount) * Number(s.forfeit_platform_bp ?? 0)) / 10_000);
+        const now = this.clock.now();
+        await t.q(`INSERT INTO payouts(lot_id, deposit_id, recipient, user_id, amount, created_at) VALUES ($1,$2,'seller',$3,$4,$6),($1,$2,'platform',NULL,$5,$6)`, [
+          d.lot_id, depositId, lot.seller_id, Number(d.amount) - platform, platform, now,
+        ]);
+        await this.notify.queue(lot.seller_id, 'email', 'forfeit_payout', { lotId: d.lot_id, amount: fmtAmd(Number(d.amount) - platform) }, { dedupeKey: `forfeit:${depositId}` }, t);
+      });
     }
     await this.audit.log(admin.id, 'deposit.' + action, 'deposit', depositId, { status: 'disputed' }, { reason });
     return { ok: true };

@@ -105,9 +105,9 @@ export class RevealService {
           new Date(now.getTime() + s.deal_confirm_hours * HOUR),
         ]);
         // проигравшим и тем, кто внёс депозит без ставки, депозит освобождается сразу; у победителя — держится до сделки.
-        // v0.2: у 2-го места депозит держится, пока действует «второй шанс» (second_chance_days)
-        const runnerUp = s.second_chance_days > 0 ? opened[1]?.userId ?? 0 : 0;
-        await this.deposits.markReleasing(`lot_id=$1 AND user_id NOT IN ($2, $3) AND status IN ('pending','held')`, [lotId, winner.userId, runnerUp], t);
+        // PRD v2 решение 8: взнос держат первые chain_places мест — сделка может перейти к ним по очереди
+        const keep = opened.slice(0, Math.max(1, Number(s.chain_places ?? 1))).map((o) => o.userId);
+        await this.deposits.markReleasing(`lot_id=$1 AND NOT (user_id = ANY($2)) AND status IN ('pending','held')`, [lotId, keep], t);
       } else {
         // R-12 / SC-13: ставок нет — аукцион без победителя
         await t.q(`UPDATE lots SET status='no_sale', ended_reason='no_bids', private_key_wrapped=NULL WHERE id=$1`, [lotId]);
@@ -131,8 +131,8 @@ export class RevealService {
           const extra =
             o.place === 1
               ? phrase('extra_winner', lang, { hours: s.deal_confirm_hours, link: dealLink })
-              : o.place === 2 && s.second_chance_days > 0
-                ? phrase('extra_runner_up', lang, { days: s.second_chance_days })
+              : o.place <= Math.max(1, Number(s.chain_places ?? 1))
+                ? phrase('extra_chain', lang, { place: o.place, hours: s.deal_confirm_hours })
                 : phrase('extra_loser', lang);
           await this.notify.queue(
             o.userId,

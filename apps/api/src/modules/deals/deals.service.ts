@@ -118,22 +118,22 @@ export class DealsService {
     const now = this.clock.now();
     await t.q(`UPDATE deposits SET status='disputed', updated_at=$3 WHERE lot_id=$1 AND user_id=$2 AND status='held'`, [d.lot_id, d.winner_user_id, now]);
     await this.risk.strike(d.winner_user_id, d.lot_id, 'winner refused or silent: ' + reason, t);
-    const runner = d.round === 1 ? await this.runnerUp(d.lot_id, t) : null;
+    const runner = await this.runnerUp(d.lot_id, d.round + 1, t); // PRD v2: следующее место цепочки
     if (runner) {
       const s = await this.settings.all(t);
       const web = process.env.WEB_URL || 'http://localhost:3000';
       await t.q(
-        `UPDATE deals SET winner_user_id=$2, amount=$3, round=2, prev_winner_user_id=$4, transferred_at=$5, confirm_deadline=$6,
+        `UPDATE deals SET winner_user_id=$2, amount=$3, round=$8, prev_winner_user_id=$4, transferred_at=$5, confirm_deadline=$6,
            seller_confirmed_at=NULL, buyer_confirmed_at=NULL, status='awaiting_confirm', fail_reason=$7, new_extract_key=NULL, extract_uploaded_at=NULL WHERE lot_id=$1`,
-        [d.lot_id, runner.userId, runner.amount, d.winner_user_id, now, new Date(now.getTime() + s.deal_confirm_hours * HOUR), 'round 1: ' + reason],
+        [d.lot_id, runner.userId, runner.amount, d.winner_user_id, now, new Date(now.getTime() + s.deal_confirm_hours * HOUR), `round ${d.round}: ` + reason, runner.place],
       );
       await t.q(`UPDATE lots SET winner_bid_id=$2 WHERE id=$1`, [d.lot_id, runner.bidId]);
-      await this.audit.log(null, 'deal.second_chance', 'deal', d.lot_id, { winner: d.winner_user_id }, { winner: runner.userId, amount: runner.amount }, t);
-      const payload = { lotId: d.lot_id, amount: fmtAmd(runner.amount), hours: s.deal_confirm_hours, link: `${web}/deals/${d.lot_id}` };
+      await this.audit.log(null, 'deal.second_chance', 'deal', d.lot_id, { winner: d.winner_user_id, place: d.round }, { winner: runner.userId, amount: runner.amount, place: runner.place }, t);
+      const payload = { lotId: d.lot_id, amount: fmtAmd(runner.amount), hours: s.deal_confirm_hours, place: runner.place, link: `${web}/deals/${d.lot_id}` };
       await this.notify.queue(runner.userId, 'email', 'lot_offered_second', payload, { dedupeKey: `second:${d.lot_id}:${runner.userId}` }, t);
       await this.notify.queue(runner.userId, 'sms', 'lot_offered_second', payload, { dedupeKey: `second_sms:${d.lot_id}:${runner.userId}` }, t);
       await this.notify.queue(d.seller_id, 'email', 'lot_passed_second_seller', payload, { dedupeKey: `second_seller:${d.lot_id}` }, t);
-      await this.notify.queue(d.winner_user_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Вы отказались от сделки. Лот передан участнику со 2-го места. Ваш депозит остаётся заблокированным до решения администратора.' }, {}, t);
+      await this.notify.queue(d.winner_user_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: `Вы отказались от сделки. Лот передан участнику с ${runner.place}-го места. Ваш депозит остаётся заблокированным до решения администратора.` }, {}, t);
       return 'transferred';
     }
     await t.q(`UPDATE deals SET status='buyer_failed', fail_reason=$2, closed_at=$3 WHERE lot_id=$1`, [d.lot_id, reason, now]);
@@ -143,35 +143,38 @@ export class DealsService {
     return 'failed';
   }
 
-  /** Участник со 2-го места, если «второй шанс» ещё действует и его депозит заблокирован. */
-  private async runnerUp(lotId: number, t: Queryable) {
+  /**
+   * PRD v2 решение 8: следующее место цепочки (≤ chain_places), если его взнос ещё заблокирован.
+   * second_chance_days > 0 — дополнительно ограничивает окно в днях после итога (режим v0.2).
+   */
+  private async runnerUp(lotId: number, place: number, t: Queryable) {
     const s = await this.settings.all(t);
-    if (!s.second_chance_days) return null;
+    if (place > Number(s.chain_places ?? 1)) return null;
     const r = await t.maybe<{ ranking: any[]; revealed_at: Date }>('SELECT ranking, revealed_at FROM lot_results WHERE lot_id=$1', [lotId]);
-    if (!r || this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY) return null;
-    const second = r.ranking.find((x: any) => x.place === 2);
-    if (!second) return null;
-    const bid = await t.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [second.bidId]);
+    if (!r) return null;
+    if (s.second_chance_days > 0 && this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY) return null;
+    const next = r.ranking.find((x: any) => x.place === place);
+    if (!next) return null;
+    const bid = await t.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [next.bidId]);
     if (!bid) return null;
     const dep = await t.maybe(`SELECT 1 FROM deposits WHERE lot_id=$1 AND user_id=$2 AND status='held'`, [lotId, bid.user_id]);
     if (!dep) return null;
-    return { userId: bid.user_id, amount: second.amount as number, bidId: second.bidId as string };
+    return { userId: bid.user_id, amount: next.amount as number, bidId: next.bidId as string, place };
   }
 
-  /** Когда «второй шанс» больше невозможен — освободить депозит 2-го места. */
+  /** Освободить взносы мест цепочки, когда сделка к ним уже не перейдёт (договор подписан, сделка сорвана продавцом, окно v0.2 вышло). */
   async releaseRunnerUps() {
     const s = await this.settings.all();
     const rows = await this.db.q<{ lot_id: number; ranking: any[]; revealed_at: Date; winner_user_id: number; status: string; round: number }>(
       `SELECT r.lot_id, r.ranking, r.revealed_at, d.winner_user_id, d.status, d.round FROM lot_results r JOIN deals d ON d.lot_id=r.lot_id`,
     );
     for (const r of rows) {
-      const second = r.ranking.find((x: any) => x.place === 2);
-      if (!second) continue;
-      const bid = await this.db.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [second.bidId]);
-      if (!bid || bid.user_id === r.winner_user_id) continue; // 2-е место само стало покупателем
-      const windowOver = this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY;
+      const windowOver = s.second_chance_days > 0 && this.clock.ms() - new Date(r.revealed_at).getTime() > s.second_chance_days * DAY;
       const dealOver = ['sold', 'seller_failed', 'invalidated'].includes(r.status);
-      if (windowOver || dealOver || r.round === 2) {
+      if (!windowOver && !dealOver) continue;
+      for (const x of r.ranking.filter((y: any) => y.place > 1)) {
+        const bid = await this.db.maybe<{ user_id: number }>('SELECT user_id FROM bids WHERE id=$1', [x.bidId]);
+        if (!bid || bid.user_id === r.winner_user_id) continue; // это место само стало покупателем
         await this.deposits.markReleasing(`lot_id=$1 AND user_id=$2 AND status='held'`, [r.lot_id, bid.user_id], this.db);
       }
     }

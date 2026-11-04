@@ -166,7 +166,7 @@ describe('SC-14 / SC-15 Сделка и комиссия', () => {
 });
 
 describe('SC-16 / 6A.3 Победитель отказался или молчит 48 ч', () => {
-  it('v0.2 «второй шанс»: отказ в течение 5 дней → лот переходит 2-му месту по его ставке', async () => {
+  it('PRD v2: отказ победителя → лот переходит 2-му месту по его ставке', async () => {
     const { seller, lot, win, lose } = await wonLot();
     await win.agent.post(`/api/deals/${lot}/decline`).send({ reason: 'передумал' }).expect(201);
     const d = await h.db.one(`SELECT * FROM deals WHERE lot_id=$1`, [lot]);
@@ -177,23 +177,77 @@ describe('SC-16 / 6A.3 Победитель отказался или молчи
     expect((await h.outbox(seller.id, 'lot_passed_second_seller')).length).toBe(1);
     // новый покупатель видит «Вы выиграли» и подтверждает
     const res = await (await h.fresh(lose.agent)).get(`/api/lots/${lot}/result`);
-    expect(res.body).toMatchObject({ youWon: true, secondChance: { transferred: true, days: 5 } });
+    expect(res.body).toMatchObject({ youWon: true, secondChance: { transferred: true, place: 2, chainPlaces: 3 } });
     expect(res.body.bids.find((b: any) => b.isBuyer).userId).toBe(lose.id);
     await lose.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(lose.agent, 'deal_confirm')).expect(201);
-    // если и 2-е место отказывается — лот «не состоялся» (третьему месту не передаётся)
+    // если и 2-е место отказывается, а 3-го нет — лот «не состоялся»
     await lose.agent.post(`/api/deals/${lot}/decline`).send({ reason: 'нет денег' }).expect(201);
     expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('no_sale');
   });
 
-  it('после 5 дней «второго шанса» нет: депозит 2-го места освобождается, отказ → лот «не состоялся»', async () => {
+  it('PRD v2: окна в 5 дней нет — взнос 2-го места держится до договора; режим v0.2 включается настройкой', async () => {
     const { seller, lot, win, lose } = await wonLot();
     await win.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(win.agent, 'deal_confirm'));
     await seller.agent.post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(seller.agent, 'deal_confirm'));
     h.advance(5 * DAY + 1000);
     await h.deals().tick();
-    expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, lose.id])).status).toBe('released');
+    expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, lose.id])).status).toBe('held');
     await (await h.fresh(win.agent)).post(`/api/deals/${lot}/decline`).send({ reason: 'поздно' }).expect(201);
-    expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [lot])).status).toBe('no_sale');
+    expect((await h.db.one(`SELECT winner_user_id, round FROM deals WHERE lot_id=$1`, [lot]))).toMatchObject({ winner_user_id: lose.id, round: 2 });
+
+    // режим v0.2: second_chance_days = 5 → после 5 дней взнос 2-го места освобождается и лот не передаётся
+    const { SettingsService } = await import('../src/common/settings');
+    await h.get(SettingsService).set('second_chance_days', 5, null);
+    try {
+      const x = await wonLot();
+      await x.win.agent.post(`/api/deals/${x.lot}/confirm`).set('x-step-up', await h.stepUp(x.win.agent, 'deal_confirm'));
+      await x.seller.agent.post(`/api/deals/${x.lot}/confirm`).set('x-step-up', await h.stepUp(x.seller.agent, 'deal_confirm'));
+      h.advance(5 * DAY + 1000);
+      await h.deals().tick();
+      expect((await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [x.lot, x.lose.id])).status).toBe('released');
+      await (await h.fresh(x.win.agent)).post(`/api/deals/${x.lot}/decline`).send({ reason: 'поздно' }).expect(201);
+      expect((await h.db.one(`SELECT status FROM lots WHERE id=$1`, [x.lot])).status).toBe('no_sale');
+    } finally {
+      await h.get(SettingsService).set('second_chance_days', 0, null);
+    }
+  });
+
+  it('PRD v2: цепочка 1 → 2 → 3, у каждого 48 ч; удержанный взнос — 80 % продавцу, 20 % платформе', async () => {
+    const seller = await h.user({ card: '4111111111119994' });
+    const lot = await h.lot(seller.id, { price: 40_000_000, closesIn: HOUR });
+    const p1 = await h.bidder(lot);
+    const p2 = await h.bidder(lot);
+    const p3 = await h.bidder(lot);
+    const p4 = await h.bidder(lot);
+    await h.bid(p1.agent, lot, 46_000_000);
+    await h.bid(p2.agent, lot, 45_000_000);
+    await h.bid(p3.agent, lot, 44_000_000);
+    await h.bid(p4.agent, lot, 43_000_000);
+    h.advance(HOUR);
+    await h.reveal().revealDue();
+    const st = async (u: any) => (await h.db.one(`SELECT status FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, u.id])).status;
+    expect([await st(p1), await st(p2), await st(p3)]).toEqual(['held', 'held', 'held']);
+    expect(['releasing', 'released']).toContain(await st(p4)); // 4-е место — вне цепочки
+    // место 1 молчит 48 ч → место 2; место 2 отказывается → место 3
+    h.advance(48 * HOUR + 1000);
+    await h.deals().tick();
+    expect(await h.db.one(`SELECT winner_user_id, round, amount FROM deals WHERE lot_id=$1`, [lot])).toMatchObject({ winner_user_id: p2.id, round: 2, amount: 45_000_000 });
+    await (await h.fresh(p2.agent)).post(`/api/deals/${lot}/decline`).send({ reason: 'нет денег' }).expect(201);
+    expect(await h.db.one(`SELECT winner_user_id, round, amount FROM deals WHERE lot_id=$1`, [lot])).toMatchObject({ winner_user_id: p3.id, round: 3, amount: 44_000_000 });
+    expect((await h.outbox(p3.id, 'lot_offered_second'))[0].body).toContain('3-м месте');
+    expect([await st(p1), await st(p2), await st(p3)]).toEqual(['disputed', 'disputed', 'held']);
+    // место 3 подписывает → сделка; админ удерживает взнос места 1 → 80 / 20
+    const conf = async (a: any) => (await h.fresh(a)).post(`/api/deals/${lot}/confirm`).set('x-step-up', await h.stepUp(a, 'deal_confirm')).expect(201);
+    await conf(p3.agent);
+    await conf(seller.agent);
+    const dep1 = await h.db.one(`SELECT id, amount FROM deposits WHERE lot_id=$1 AND user_id=$2`, [lot, p1.id]);
+    await (await h.staff()).post(`/api/admin/deposits/${dep1.id}/decide`).send({ action: 'charge', reason: 'Отказ по оферте' }).expect(201);
+    const pay = await h.db.q(`SELECT recipient, user_id, amount FROM payouts WHERE deposit_id=$1 ORDER BY recipient`, [dep1.id]);
+    expect(pay).toEqual([
+      { recipient: 'platform', user_id: null, amount: Math.floor(Number(dep1.amount) * 0.2) },
+      { recipient: 'seller', user_id: seller.id, amount: Number(dep1.amount) - Math.floor(Number(dep1.amount) * 0.2) },
+    ]);
+    expect((await h.outbox(seller.id, 'forfeit_payout')).length).toBe(1);
   });
 
   it('молчание 48 ч без 2-го места: лот «не состоялся», депозит спорный, лестница мер 30 → 180 дней → бессрочно', async () => {

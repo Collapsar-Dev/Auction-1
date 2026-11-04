@@ -51,7 +51,9 @@ export const DEFAULT_SETTINGS = {
   subscription_reminder_days: [14, 3],
   dispute_hours: 48, // SC-19
   bid_max_changes: 3, // PRD v2 решение 9: сколько раз можно изменить ставку до конца торгов (в зачёт — последняя версия)
-  second_chance_days: 5, // v0.2: отказ победителя в течение N дней после итога → лот 2-му месту (0 = выключено)
+  second_chance_days: 0, // v0.2: окно «второго шанса» в днях после итога; PRD v2 — 0 = без окна (места держатся до договора)
+  chain_places: 3, // PRD v2 решение 8: сколько мест держат взнос и по очереди получают лот (1 = только победитель)
+  forfeit_platform_bp: 2000, // PRD v2 §6 вариант B: доля платформы с удержанного взноса — 20 % (решается с юристом)
   results_show_user_ids: 1, // v0.2: после итога показывать ID участников рядом со ставками (1 = да, 0 = нет)
   consent_versions: { terms: '1.0', privacy: '1.0', biometrics: '1.0', auction_rules: '1.0', seller_offer: '1.0' },
 };

@@ -403,7 +403,8 @@ const ru: D = {
   participant_id: 'Участник',
   buyer_now: 'Покупатель',
   second_chance_note: 'Если победитель откажется от сделки в течение {days} дней после итога (до {until}), лот достанется участнику на 2-м месте по его ставке.',
-  second_chance_done: 'Победитель отказался — лот передан участнику со 2-го места.',
+  second_chance_done: 'Покупатель отказался — лот передан участнику с {place}-го места.',
+  chain_note: 'Взнос держат первые {n} места. Если победитель откажется или не ответит за 48 ч, лот по очереди предложат следующему месту по его ставке.',
   rules_short_6: 'После итога рядом с каждой ставкой виден ID участника. Если победитель откажется в течение 5 дней, лот получает 2-е место.',
   rules_page: 'Правила торгов простым языком',
 };
@@ -786,7 +787,8 @@ const en: D = {
   participant_id: 'Participant',
   buyer_now: 'Buyer',
   second_chance_note: 'If the winner refuses the deal within {days} days of the result (until {until}), the lot goes to the 2nd-place bidder at their bid.',
-  second_chance_done: 'The winner refused — the lot passed to the 2nd-place bidder.',
+  second_chance_done: 'The buyer refused — the lot passed to the place-{place} bidder.',
+  chain_note: 'The top {n} places keep their guarantee. If the winner refuses or is silent for 48 h, the lot is offered to the next place at their bid, in turn.',
   rules_short_6: 'After the result each bid shows the bidder ID. If the winner refuses within 5 days, 2nd place gets the lot.',
   rules_page: 'Auction rules in plain language',
 };
@@ -1169,7 +1171,8 @@ const hy: D = {
   participant_id: 'Մասնակից',
   buyer_now: 'Գնորդ',
   second_chance_note: 'Եթե հաղթողը հրաժարվի գործարքից արդյունքից հետո {days} օրվա ընթացքում (մինչև {until}), լոտը կանցնի երկրորդ տեղի մասնակցին՝ նրա հայտի գնով։',
-  second_chance_done: 'Հաղթողը հրաժարվեց — լոտը փոխանցվել է երկրորդ տեղի մասնակցին։',
+  second_chance_done: 'Գնորդը հրաժարվեց — լոտը փոխանցվել է {place}-րդ տեղի մասնակցին։',
+  chain_note: 'Երաշխիքը պահում են առաջին {n} տեղերը։ Եթե հաղթողը հրաժարվի կամ 48 ժամում չպատասխանի, լոտը հերթով կառաջարկվի հաջորդ տեղին՝ նրա հայտի գնով։',
   rules_short_6: 'Արդյունքից հետո յուրաքանչյուր հայտի կողքին երևում է մասնակցի ID-ն։ Եթե հաղթողը 5 օրում հրաժարվի, լոտը կստանա 2-րդ տեղը։',
   rules_page: 'Աճուրդի կանոնները պարզ լեզվով',
 };

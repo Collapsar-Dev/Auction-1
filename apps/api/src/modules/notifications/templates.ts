@@ -118,20 +118,25 @@ export const TEMPLATES: Record<string, Tpl> = {
     ru: { s: 'Сделка не состоялась: лот #{lotId}', b: '{reason}' },
     en: { s: 'Deal failed: lot #{lotId}', b: '{reason}' },
   },
+  forfeit_payout: {
+    hy: { s: 'Լոտ #{lotId}՝ պահված երաշխիք', b: 'Հրաժարված մասնակցի երաշխիքը պահվել է։ Ձեզ հասնում է {amount} (հարթակի բաժնից հետո)։' },
+    ru: { s: 'Лот #{lotId}: удержанный взнос', b: 'Взнос отказавшегося участника удержан. Вам причитается {amount} (за вычетом доли платформы).' },
+    en: { s: 'Lot #{lotId}: withheld guarantee', b: 'The guarantee of the refusing bidder was withheld. You are due {amount} (after the platform share).' },
+  },
   deal_sold: {
     hy: { s: 'Գործարքը ավարտված է՝ լոտ #{lotId}', b: 'Լոտը նշված է «Վաճառված»։ {extra}' },
     ru: { s: 'Сделка завершена: лот #{lotId}', b: 'Лот отмечен как «Продано». {extra}' },
     en: { s: 'Deal completed: lot #{lotId}', b: 'The lot is marked as sold. {extra}' },
   },
   lot_offered_second: {
-    hy: { s: 'Լոտ #{lotId}-ը առաջարկվում է ձեզ', b: 'Հաղթողը հրաժարվեց։ Լոտը առաջարկվում է ձեզ՝ ձեր հայտի գնով {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
-    ru: { s: 'Лот #{lotId} предложен вам', b: 'Победитель отказался от сделки. Лот переходит к вам по вашей ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
-    en: { s: 'Lot #{lotId} is offered to you', b: 'The winner refused. The lot passes to you at your bid of {amount}. Confirm the deal within {hours} h: {link}' },
+    hy: { s: 'Լոտ #{lotId}-ը առաջարկվում է ձեզ', b: 'Վերևի տեղը հրաժարվեց (դուք {place}-րդ տեղում եք)։ Լոտը առաջարկվում է ձեզ՝ ձեր հայտի գնով {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
+    ru: { s: 'Лот #{lotId} предложен вам', b: 'Место выше отказалось от сделки (вы на {place}-м месте). Лот переходит к вам по вашей ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
+    en: { s: 'Lot #{lotId} is offered to you', b: 'The place above refused (you are in place {place}). The lot passes to you at your bid of {amount}. Confirm the deal within {hours} h: {link}' },
   },
   lot_passed_second_seller: {
-    hy: { s: 'Լոտ #{lotId}՝ գործարքը երկրորդ տեղի հետ', b: 'Հաղթողը հրաժարվեց։ Լոտն անցնում է երկրորդ տեղի մասնակցին՝ {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
-    ru: { s: 'Лот #{lotId}: сделка со 2-м местом', b: 'Победитель отказался. Лот переходит участнику со 2-го места по его ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
-    en: { s: 'Lot #{lotId}: deal with 2nd place', b: 'The winner refused. The lot passes to the 2nd-place bidder at {amount}. Confirm the deal within {hours} h: {link}' },
+    hy: { s: 'Լոտ #{lotId}՝ գործարքը {place}-րդ տեղի հետ', b: 'Գնորդը հրաժարվեց։ Լոտն անցնում է {place}-րդ տեղի մասնակցին՝ {amount}։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}' },
+    ru: { s: 'Лот #{lotId}: сделка с {place}-м местом', b: 'Покупатель отказался. Лот переходит участнику с {place}-го места по его ставке {amount}. Подтвердите сделку в течение {hours} ч: {link}' },
+    en: { s: 'Lot #{lotId}: deal with place {place}', b: 'The buyer refused. The lot passes to the place-{place} bidder at {amount}. Confirm the deal within {hours} h: {link}' },
   },
   commission_charged: {
     hy: { s: 'Միջնորդավճարը գանձված է', b: 'Լոտ #{lotId}-ի համար գանձվել է {amount}։ Կտրոն №{receiptNo}' },
@@ -206,6 +211,11 @@ export const PHRASES: Record<string, Record<Lang, string>> = {
   intro_seller: { hy: 'Ձեր լոտի աճուրդն ավարտվել է։ Հաղթող հայտ՝ {amount}։', ru: 'Аукцион по вашему лоту завершён. Победная ставка: {amount}.', en: 'The auction for your lot has ended. Winning bid: {amount}.' },
   extra_winner: { hy: 'Դուք հաղթեցիք։ Հաստատեք գործարքը {hours} ժամվա ընթացքում՝ {link}', ru: 'Вы выиграли! Подтвердите сделку в течение {hours} ч: {link}', en: 'You won! Confirm the deal within {hours} h: {link}' },
   extra_loser: { hy: 'Ձեր ավանդն ազատվում է։ Վերադարձի ժամկետը կախված է ձեր բանկից։', ru: 'Ваш депозит освобождается. Срок возврата денег на карту зависит от вашего банка.', en: 'Your deposit is being released. The timing depends on your bank.' },
+  extra_chain: {
+    hy: 'Դուք {place}-րդ տեղում եք։ Եթե նախորդ տեղերը հրաժարվեն, լոտը կառաջարկվի ձեզ՝ ձեր հայտի գնով, որոշման համար {hours} ժամ։ Մինչ պայմանագիրը ձեր ավանդը մնում է արգելափակված։',
+    ru: 'Вы на {place}-м месте. Если места выше откажутся, лот предложат вам по вашей ставке, на решение — {hours} ч. До подписания договора ваш взнос остаётся заблокированным.',
+    en: 'You are in place {place}. If the places above refuse, the lot will be offered to you at your bid, with {hours} h to decide. Your guarantee stays held until the contract is signed.',
+  },
   extra_runner_up: {
     hy: 'Դուք երկրորդ տեղում եք։ Եթե հաղթողը {days} օրվա ընթացքում հրաժարվի, լոտը կառաջարկվի ձեզ՝ ձեր հայտի գնով։ Մինչ այդ ձեր ավանդը մնում է արգելափակված։',
     ru: 'Вы на 2-м месте. Если победитель откажется в течение {days} дней, лот будет предложен вам по вашей ставке. До этого ваш депозит остаётся заблокированным.',
