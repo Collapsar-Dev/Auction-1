@@ -358,6 +358,21 @@ async function main() {
   );
   await db.q(`UPDATE subscriptions s SET participations_used = (SELECT count(*) FROM participation_credits c WHERE c.subscription_id=s.id AND c.type='spent')`);
 
+  // PRD v2 решения 16–17: у продавцов — тариф (Анна — «Пакет 10», Карен — «Разовое», уже потрачено),
+  // по лотам с открытой регистрацией взнос продавца заблокирован
+  const sp = await db.q<{ id: number; code: string; price: number; listing_limit: number | null; max_active: number | null }>('SELECT * FROM seller_plans');
+  const spOf = (c: string) => sp.find((x) => x.code === c)!;
+  for (const [key, code, used] of [['anna', 'pack10', 4], ['karen', 'single', 1]] as const) {
+    const pl = spOf(code);
+    await db.q(
+      `INSERT INTO seller_subscriptions(user_id, seller_plan_id, price_paid, listing_limit, max_active, listings_used, starts_at, ends_at, source, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'paid',$7)`,
+      [U[key].id, pl.id, pl.price, pl.listing_limit, pl.max_active, used, at(-30 * DAY), code === 'single' ? null : at(335 * DAY)],
+    );
+  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  await app.get(require('../src/modules/seller/seller.service').SellerService).tick();
+
   await app.close();
 
   console.log('\n✔ Демо-данные загружены. Лоты:', L);

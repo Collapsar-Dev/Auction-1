@@ -133,6 +133,16 @@ export const TEMPLATES: Record<string, Tpl> = {
     ru: { s: 'Сделка не состоялась: лот #{lotId}', b: '{reason}' },
     en: { s: 'Deal failed: lot #{lotId}', b: '{reason}' },
   },
+  seller_deposit_failed: {
+    hy: { s: 'Լոտ #{lotId}՝ վաճառողի երաշխիքը չարգելափակվեց', b: 'Չհաջողվեց արգելափակել {amount} ձեր քարտի վրա։ Մինչ երաշխիքն արգելափակված չէ, գրանցումը լոտին փակ է։ Ստուգեք քարտը կամ ավելացրեք նորը։' },
+    ru: { s: 'Лот #{lotId}: взнос продавца не заблокирован', b: 'Не удалось заблокировать {amount} на вашей карте. Пока взнос не заблокирован, регистрация на лот закрыта. Проверьте карту или добавьте новую.' },
+    en: { s: 'Lot #{lotId}: seller guarantee not held', b: 'We could not hold {amount} on your card. Registration for the lot stays closed until the guarantee is held. Check the card or add a new one.' },
+  },
+  seller_forfeit_compensation: {
+    hy: { s: 'Լոտ #{lotId}՝ փոխհատուցում', b: 'Վաճառողը հրաժարվեց կամ հանեց լոտը։ Նրա երաշխիքից ձեզ հասնում է {amount} փոխհատուցում։' },
+    ru: { s: 'Лот #{lotId}: компенсация', b: 'Продавец снял лот или отказался от сделки. Из его взноса вам причитается компенсация {amount}.' },
+    en: { s: 'Lot #{lotId}: compensation', b: 'The seller withdrew the lot or refused the deal. You are due {amount} compensation from the seller guarantee.' },
+  },
   forfeit_payout: {
     hy: { s: 'Լոտ #{lotId}՝ պահված երաշխիք', b: 'Հրաժարված մասնակցի երաշխիքը պահվել է։ Ձեզ հասնում է {amount} (հարթակի բաժնից հետո)։' },
     ru: { s: 'Лот #{lotId}: удержанный взнос', b: 'Взнос отказавшегося участника удержан. Вам причитается {amount} (за вычетом доли платформы).' },

@@ -20,6 +20,8 @@ import { AccountController } from './modules/cards/cards.controller';
 import { PlansService } from './modules/plans/plans.service';
 import { PasswordAuthService } from './modules/auth/password.service';
 import { ChainService } from './modules/chain/chain.service';
+import { SellerService } from './modules/seller/seller.service';
+import { SellerController } from './modules/seller/seller.controller';
 import { EligibilityService } from './modules/lots/eligibility.service';
 import { LotsService } from './modules/lots/lots.service';
 import { LotsController } from './modules/lots/lots.controller';
@@ -41,7 +43,7 @@ import { FilesController } from './modules/files/files.controller';
  * auction_type = 'type1': новые типы аукционов добавятся отдельным модулем правил.
  */
 @Module({
-  controllers: [AuthController, MeController, AccountController, LotsController, DealsController, AdminController, DevController, FilesController],
+  controllers: [AuthController, MeController, AccountController, LotsController, DealsController, AdminController, DevController, FilesController, SellerController],
   providers: [
     { provide: APP_FILTER, useClass: AllErrorsFilter },
     Db,
@@ -61,6 +63,7 @@ import { FilesController } from './modules/files/files.controller';
     PlansService,
     PasswordAuthService,
     ChainService,
+    SellerService,
     EligibilityService,
     LotsService,
     DepositsService,

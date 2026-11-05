@@ -1,3 +1,4 @@
+import { SellerService } from '../seller/seller.service';
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { Db, Queryable } from '../../common/db';
@@ -90,6 +91,7 @@ export class LotsService {
     private notify: NotifyService,
     private plans: PlansService,
     private elig: EligibilityService,
+    private seller: SellerService,
   ) {}
 
   // ---------------- Мастер создания лота (SC-04) ----------------
@@ -243,7 +245,7 @@ export class LotsService {
       valuations: await this.valuations(lot.property_id),
       moderation: mod,
       preview: lot.start_price
-        ? { deposit: guaranteeFor(lot.start_price, lot.guarantee_bp, s), guaranteePercent: lot.guarantee_bp === null || lot.guarantee_bp === undefined ? null : lot.guarantee_bp / 100, commission: commissionFor(lot.start_price, s), suggestedPlan: (await this.plans.suggestFor(lot.start_price))?.code ?? null }
+        ? { deposit: guaranteeFor(lot.start_price, lot.guarantee_bp, s), sellerDeposit: s.seller_deposit_enabled ? this.seller.amountFor(lot, s) : 0, guaranteePercent: lot.guarantee_bp === null || lot.guarantee_bp === undefined ? null : lot.guarantee_bp / 100, commission: commissionFor(lot.start_price, s), suggestedPlan: (await this.plans.suggestFor(lot.start_price))?.code ?? null }
         : null,
       submitBlockers: [
         ...(user.kyc_status !== 'verified' ? ['KYC_REQUIRED'] : []),
@@ -286,6 +288,7 @@ export class LotsService {
     await this.validateTerms(lot.start_price, new Date(lot.opens_at), new Date(lot.closes_at), null);
     await this.db.tx(async (t) => {
       await this.auth.accept(user.id, ['seller_offer'], t);
+      await this.seller.reserve(user, lot, t); // PRD v2 решение 16: размещение по тарифу продавца
       await t.q(`UPDATE lots SET status='moderation' WHERE id=$1`, [lotId]);
       await this.audit.log(user.id, 'lot.submitted', 'lot', lotId, null, null, t);
     });
@@ -333,6 +336,7 @@ export class LotsService {
       } else {
         await t.q(`UPDATE lots SET status=$2 WHERE id=$1`, [lotId, decision === 'return' ? 'needs_changes' : 'rejected']);
       }
+      await this.seller.onModeration(lotId, decision, t);
       await this.audit.log(staff.id, 'lot.moderated', 'lot', lotId, { status: lot.status }, { decision, comment }, t);
       const tpl = decision === 'approve' ? 'lot_approved' : decision === 'return' ? 'lot_returned' : 'lot_rejected';
       await this.notify.queue(lot.seller_id, 'email', tpl, { lotId, comment, opensAt: fmtYerevan(lot.opens_at), closesAt: fmtYerevan(lot.closes_at) }, {}, t);
@@ -364,6 +368,14 @@ export class LotsService {
       await t.q(`UPDATE deposits SET status='releasing', updated_at=$2 WHERE lot_id=$1 AND status IN ('pending','held')`, [lotId, this.clock.now()]);
       await t.q(`UPDATE lots SET status='withdrawn', ended_reason=$2, private_key_wrapped=NULL WHERE id=$1`, [lotId, asAdmin ? 'admin: ' + reason : 'seller']);
       await this.audit.log(actor.id, asAdmin ? 'lot.withdrawn_by_admin' : 'lot.withdrawn', 'lot', lotId, { status: lot.status }, { reason, bids: asAdmin ? undefined : 0 }, t);
+      // PRD v2 решение 17: взнос продавца. Сам снял после открытия регистрации — 25 %, во время торгов — 100 %;
+      // снял администратор (техническая причина, документы и т. п.) — взнос возвращается
+      if (asAdmin) await this.seller.release(lotId, 'admin_withdraw', t);
+      else {
+        const s2 = await this.settings.all(t);
+        const bp = this.clock.ms() >= new Date(lot.opens_at).getTime() ? 10_000 : Number(s2.seller_cancel_registration_bp ?? 0);
+        await this.seller.forfeit(lotId, bp, 'seller_withdraw', null, t);
+      }
       // PRD v2 решение 5: лот отменён — попытки тарифа возвращаются всем, кто нажал «Участвовать» (+ pop-up)
       const credited = await t.q<{ user_id: number }>(`SELECT DISTINCT user_id FROM participation_credits WHERE lot_id=$1`, [lotId]);
       for (const c of credited) await this.plans.refund(c.user_id, lotId, asAdmin ? 'lot_cancelled_admin' : 'lot_cancelled_seller', actor.id, t);

@@ -54,6 +54,9 @@ export class H {
     // в тестах коды можно запрашивать подряд; правила AU-01 проверяются отдельно
     await this.get(SettingsService).set('otp_resend_sec', 0, null);
     await this.get(SettingsService).set('otp_daily_max', 10000, null);
+    // PRD v2 тарифы и взнос продавца проверяются в seller.spec.ts; в остальных тестах (покупатель, v1) выключены
+    await this.get(SettingsService).set('seller_plans_enabled', false, null);
+    await this.get(SettingsService).set('seller_deposit_enabled', false, null);
     return this;
   }
   async stop() {

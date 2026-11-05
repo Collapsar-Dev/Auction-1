@@ -8,7 +8,7 @@ import { fmtAmd, fmtDate } from '@/lib/format';
 import { useStepUp } from '@/components/StepUp';
 import { StatusBadge } from '@/components/Shell';
 
-const TABS = ['profile', 'access', 'cards', 'bids', 'lots', 'deals', 'deposits', 'payments', 'favorites', 'notifications', 'investor'];
+const TABS = ['profile', 'access', 'cards', 'bids', 'lots', 'seller', 'deals', 'deposits', 'payments', 'favorites', 'notifications', 'investor'];
 
 export default function Page() {
   return (
@@ -46,6 +46,7 @@ function Account() {
       {tab === 'lots' && <Lots />}
       {tab === 'deals' && <Deals />}
       {tab === 'deposits' && <Deposits />}
+      {tab === 'seller' && <SellerPlans />}
       {tab === 'payments' && <Payments />}
       {tab === 'favorites' && <Favorites />}
       {tab === 'notifications' && <Notifications />}
@@ -644,6 +645,81 @@ function LedgerCheck() {
         </div>
       ))}
       <p className="small muted">{t('ledger_hint')}</p>
+    </div>
+  );
+}
+
+/** PRD v2 решения 16–17 (F3.3, F8.2): тариф продавца и взносы продавца. */
+function SellerPlans() {
+  const { t, tErr, lang } = useApp();
+  const stepUp = useStepUp();
+  const [plans, setPlans] = useState<any[]>([]);
+  const [mine, setMine] = useState<any>(null);
+  const [cards, setCards] = useState<any[]>([]);
+  const [msg, setMsg] = useState('');
+  const load = () => {
+    api('/seller/plans').then(setPlans);
+    api('/me/seller').then(setMine);
+    api('/cards').then(setCards);
+  };
+  useEffect(load, []);
+  const buy = async (code: string) => {
+    setMsg('');
+    try {
+      const tk = await stepUp.run('subscription');
+      if (!tk) return;
+      const r = await api('/seller/subscriptions', { body: { plan: code, cardId: cards[0]?.id }, headers: { 'x-step-up': tk } });
+      setMsg(`${t('done')} · ${r.receiptNo}`);
+      load();
+    } catch (e) {
+      setMsg(tErr(e));
+    }
+  };
+  return (
+    <div className="stack">
+      <p className="muted">{t('seller_plans_note')}</p>
+      {(mine?.subscriptions || []).map((s: any) => (
+        <div key={s.id} className="notice ok">
+          {plans.find((p) => p.code === s.plan)?.name_i18n[lang] ?? s.plan} — {s.limit === null ? t('seller_unlimited_left', { active: mine.activeLots, max: s.maxActive }) : t('seller_left', { left: s.left, limit: s.limit })}
+          {s.endsAt && <span className="small"> · {t('active_until')} {fmtDate(s.endsAt)}</span>}
+        </div>
+      ))}
+      <div className="grid">
+        {plans.map((p) => (
+          <div key={p.id} className="card stack">
+            <h3>{p.name_i18n[lang]}</h3>
+            <div className="big-price">{fmtAmd(p.price)}</div>
+            <p className="small">
+              {p.listing_limit === null ? t('seller_plan_unlimited', { max: p.max_active }) : t('seller_plan_n', { n: p.listing_limit })}
+              {p.period_days ? ` · ${t('per_year')}` : ''}
+            </p>
+            <button className="btn primary" disabled={!cards.length} onClick={() => buy(p.code)}>
+              {t('buy')}
+            </button>
+          </div>
+        ))}
+      </div>
+      {!cards.length && (
+        <Link href="/account?tab=cards" className="small">
+          {t('bind_card_first')}
+        </Link>
+      )}
+      <p className="small muted">{t('seller_plan_rules')}</p>
+      {mine?.deposits?.length > 0 && (
+        <div className="card stack small">
+          <b>{t('seller_deposits_title')}</b>
+          {mine.deposits.map((d: any) => (
+            <div key={d.lot_id} className="row gap">
+              <Link href={`/lots/${d.lot_id}`}>#{d.lot_id}</Link>
+              <b>{fmtAmd(d.amount)}</b>
+              <span>{t('sdep_' + d.status)}</span>
+              {d.status === 'charged' && <span className="error">−{fmtAmd(d.charged_amount)}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {msg && <p className="notice">{msg}</p>}
+      {stepUp.node}
     </div>
   );
 }

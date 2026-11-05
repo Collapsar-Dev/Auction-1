@@ -22,6 +22,11 @@ export const DEFAULT_SETTINGS = {
   outage_extend_hours: 24,
   otp_ttl_sec: 300, // AU-01
   otp_attempts: 5,
+  seller_plans_enabled: true, // PRD v2 решение 16: отправить лот на модерацию можно только с размещением по тарифу продавца
+  seller_deposit_enabled: true, // PRD v2 решение 17: возвратный взнос продавца, блок с открытия регистрации
+  seller_deposit_min: 100_000, // не меньше (процент — как у взноса участника)
+  seller_cancel_registration_bp: 2500, // снял лот после открытия регистрации, до торгов — удержание 25 %
+  seller_forfeit_buyer_bp: 8000, // из удержанного: 80 % победителю / участникам, остальное платформе
   kyc_require_moderator: true, // PRD v2 решение 2: заключение KYC-сервиса → решение модератора (false = как в v1, сразу «проверен»)
   password_min_length: 8, // PRD v2 решение 1: пароль — минимум 8 символов, буквы и цифры
   login_max_attempts: 5, // неверный пароль N раз подряд → вход закрыт на login_lock_min минут

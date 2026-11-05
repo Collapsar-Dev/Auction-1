@@ -1,3 +1,4 @@
+import { SellerService } from '../seller/seller.service';
 import { Injectable } from '@nestjs/common';
 import crypto from 'crypto';
 import { Db, Queryable } from '../../common/db';
@@ -27,10 +28,16 @@ export class DepositsService {
     private elig: EligibilityService,
     private risk: RiskService,
     private plans: PlansService,
+    private seller: SellerService,
   ) {}
 
   async place(user: User, lotId: number, cardId: number | undefined, stepUp: string | undefined, fp: { ua: string; ip: string }) {
     const now = this.clock.now();
+    // PRD v2 решение 17: регистрация открыта только когда заблокирован взнос продавца
+    const pre = await this.db.maybe<{ registration_opens_at: Date | null; status: string }>('SELECT registration_opens_at, status FROM lots WHERE id=$1', [lotId]);
+    if (pre && ['scheduled', 'live'].includes(pre.status) && !(pre.registration_opens_at && now.getTime() < new Date(pre.registration_opens_at).getTime())) {
+      if (!(await this.seller.ensureHold(lotId))) fail('REGISTRATION_NOT_OPEN', 409, { reason: 'SELLER_GUARANTEE' });
+    }
     const prep = await this.db.tx(async (t) => {
       const lot = await t.maybe(`SELECT * FROM lots WHERE id=$1 FOR SHARE`, [lotId]);
       if (!lot) fail('LOT_NOT_FOUND', 404);

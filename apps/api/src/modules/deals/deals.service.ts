@@ -1,3 +1,4 @@
+import { SellerService } from '../seller/seller.service';
 import { Injectable } from '@nestjs/common';
 import crypto from 'crypto';
 import { Db, Queryable } from '../../common/db';
@@ -29,6 +30,7 @@ export class DealsService {
     private notify: NotifyService,
     private risk: RiskService,
     private deposits: DepositsService,
+    private seller: SellerService,
   ) {}
 
   private async dealFor(user: User, lotId: number, t: Queryable = this.db, lock = false) {
@@ -187,6 +189,7 @@ export class DealsService {
     await this.deposits.markReleasing(`lot_id=$1 AND user_id=$2 AND status='held'`, [d.lot_id, d.winner_user_id], t);
     await t.q(`UPDATE users SET seller_blocked=true, seller_block_reason='SELLER_FAILED_DEAL' WHERE id=$1`, [d.seller_id]);
     await this.audit.log(null, 'seller.blocked', 'user', d.seller_id, null, { lotId: d.lot_id, reason }, t);
+    await this.seller.forfeit(d.lot_id, 10_000, 'seller_failed_deal', d.winner_user_id, t); // PRD v2 решение 17: весь взнос продавца, 80 % — победителю
     await this.notify.queue(d.winner_user_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Продавец отказался или не подтвердил сделку. Ваш депозит освобождается.' }, {}, t);
     await this.notify.queue(d.seller_id, 'email', 'deal_failed', { lotId: d.lot_id, reason: 'Сделка не подтверждена вами. Создание новых лотов заблокировано до решения администратора.' }, {}, t);
   }

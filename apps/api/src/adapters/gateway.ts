@@ -31,8 +31,8 @@ export interface PaymentGateway {
   reverse(orderId: string): Promise<boolean>;
   holdByBinding(bindingId: string, amount: number, idempotencyKey: string, holdDays: number, now: Date): Promise<GatewayOrder>;
   payByBinding(bindingId: string, amount: number, idempotencyKey: string): Promise<GatewayOrder>;
-  /** списание заблокированной суммы */
-  deposit(orderId: string): Promise<boolean>;
+  /** списание заблокированной суммы (amount — частичное списание, остаток разблокируется) */
+  deposit(orderId: string, amount?: number): Promise<boolean>;
 }
 
 type FakeBinding = { bindingId: string; pan: string; mask: string; holderName?: string };
@@ -168,12 +168,13 @@ export class FakeGateway implements PaymentGateway {
     this.save();
     return o;
   }
-  async deposit(orderId: string) {
+  async deposit(orderId: string, amount?: number) {
     this.sync();
     const o = this.orders.get(orderId);
     if (!o) return false;
     const b = o.bindingId ? this.bindings.get(o.bindingId) : undefined;
     if (b?.pan.endsWith('0069')) return false;
+    if (amount !== undefined && amount < o.amount) o.amount = amount; // частичное списание
     o.status = 'deposited';
     this.save();
     return true;

@@ -311,10 +311,15 @@ export default function Wizard() {
                 <span>{fmtAmd(d.preview.deposit)}</span>
                 <span>{t('your_commission')}</span>
                 <span>≥ {fmtAmd(d.preview.commission)}</span>
-                <span>{t('required_plan')}</span>
-                <span>{d.preview.suggestedPlan}</span>
+                {d.preview.sellerDeposit > 0 && (
+                  <>
+                    <span>{t('seller_deposit_yours')}</span>
+                    <span>{fmtAmd(d.preview.sellerDeposit)}</span>
+                  </>
+                )}
               </div>
             )}
+            {d.preview?.sellerDeposit > 0 && <p className="small muted">{t('seller_deposit_hint')}</p>}
             <Nav onBack={() => setStep(3)} onNext={() => save(4)} busy={busy} />
           </div>
         )}
