@@ -24,7 +24,7 @@ import { sealText } from '../src/common/seal';
 import { KycService } from '../src/modules/kyc/kyc.service';
 import { RevealService } from '../src/modules/reveal/reveal.service';
 import { NotifyService } from '../src/modules/notifications/notify.service';
-import { demoPdf, demoPhoto } from './demo-images';
+import { APARTMENT_ROOMS, HOUSE_ROOMS, demoPdf, demoPhoto } from './demo-images';
 import { DESC, VALUATIONS } from './demo-descriptions';
 
 export const ADMIN_TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
@@ -233,7 +233,10 @@ async function main() {
     );
     for (let i = 0; i < 10; i++) {
       const key = storage.putNamed(`public/seed/lot${seed}-${i + 1}.svg`, demoPhoto(spec.type, seed, i, spec.settlement));
-      await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort) VALUES ($1,'photo',$2,false,$3)`, [prop.id, key, i + 1]);
+      // PRD v2 (F9.3): подпись комнаты — та же, что нарисована на демо-фото
+      const r = (spec.type === 'house' ? HOUSE_ROOMS : APARTMENT_ROOMS)[i] as string;
+      const room = r === 'bedroom2' ? 'bedroom' : ['facade', 'living', 'kitchen', 'bedroom', 'bathroom', 'view', 'plan', 'yard'].includes(r) ? r : 'other';
+      await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort, room) VALUES ($1,'photo',$2,false,$3,$4)`, [prop.id, key, i + 1, room]);
     }
     const owner = people.find((p) => p.key === spec.seller)!.name;
     const ex = storage.putNamed(
@@ -255,6 +258,8 @@ async function main() {
       ]);
     }
     await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort) VALUES ($1,'extract',$2,true,100)`, [prop.id, ex]);
+    // PRD v2: справка об обременениях и итог проверки по кадастру (песочница: собственник = продавец, обременений нет)
+    await db.q(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort, doc_type) VALUES ($1,'document',$2,true,101,'encumbrance')`, [prop.id, ex]);
     const lot = await db.one(
       `INSERT INTO lots(property_id, seller_id, status, draft_step, start_price, opens_at, closes_at, deposit_amount, created_at) VALUES ($1,$2,$3,5,$4,$5,$6,$7,$8) RETURNING id`,
       [prop.id, U[spec.seller].id, spec.status, spec.price, at(spec.opens), at(spec.closes), depositFor(spec.price, s), at(spec.opens - 3 * DAY)],
@@ -373,6 +378,7 @@ async function main() {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   await app.get(require('../src/modules/seller/seller.service').SellerService).tick();
 
+  await db.q(`UPDATE lots SET cadastre_check=$1 WHERE cadastre_check IS NULL`, [JSON.stringify({ found: true, ownerIsApplicant: true, ownerMatches: true, encumbrance: 'none', areaM2: null, checkedAt: new Date(now).toISOString() })]);
   await app.close();
 
   console.log('\n✔ Демо-данные загружены. Лоты:', L);

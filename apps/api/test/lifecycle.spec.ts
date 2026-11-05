@@ -32,8 +32,9 @@ describe('SC-04 Мастер создания лота', () => {
     await s.agent.patch(`/api/lots/${id}`).send({ step: 1, data: { property_type: 'house', region: 'Kotayk', settlement: 'Abovyan', street: 'Main St', cadastral_no: '07-001-0001-0002' } }).expect(200);
     const step2 = { area_m2: 150, rooms: 4, bathrooms: 2, year_built: 2005, heating: 'gas', condition: 'good', description_i18n: { ru: 'Дом' }, land_area_m2: 500, floors: 2, wall_material: 'tuff', gas: true, water: true, sewage: true };
     await s.agent.patch(`/api/lots/${id}`).send({ step: 2, data: step2 }).expect(200);
-    for (let i = 0; i < 10; i++) await s.agent.post(`/api/lots/${id}/media?kind=photo`).attach('file', png, { filename: `p${i}.png`, contentType: 'image/png' }).expect(201);
+    for (let i = 0; i < 10; i++) await s.agent.post(`/api/lots/${id}/media?kind=photo&room=${['living', 'kitchen', 'bathroom', 'bedroom', 'facade'][i % 5]}`).attach('file', png, { filename: `p${i}.png`, contentType: 'image/png' }).expect(201);
     await s.agent.post(`/api/lots/${id}/media?kind=extract`).attach('file', Buffer.from('%PDF-1.4 test'), { filename: 'e.pdf', contentType: 'application/pdf' }).expect(201);
+    await s.agent.post(`/api/lots/${id}/media?kind=document&docType=encumbrance`).attach('file', Buffer.from('%PDF-1.4'), { filename: 'enc.pdf', contentType: 'application/pdf' }).expect(201); // PRD v2: справка об отсутствии ареста и ипотеки
     const now = h.clock.ms();
     const low = await s.agent.patch(`/api/lots/${id}`).send({ step: 4, data: { start_price: 999_999, opens_at: new Date(now + 2 * DAY).toISOString(), closes_at: new Date(now + 6 * DAY).toISOString() } });
     expect(low.body.error).toBe('START_PRICE_TOO_LOW');

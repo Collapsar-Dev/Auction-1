@@ -22,6 +22,7 @@ import { PasswordAuthService } from './modules/auth/password.service';
 import { ChainService } from './modules/chain/chain.service';
 import { SellerService } from './modules/seller/seller.service';
 import { SellerController } from './modules/seller/seller.controller';
+import { FakeCadastre } from './adapters/cadastre';
 import { EligibilityService } from './modules/lots/eligibility.service';
 import { LotsService } from './modules/lots/lots.service';
 import { LotsController } from './modules/lots/lots.controller';
@@ -64,6 +65,7 @@ import { FilesController } from './modules/files/files.controller';
     PasswordAuthService,
     ChainService,
     SellerService,
+    FakeCadastre,
     EligibilityService,
     LotsService,
     DepositsService,

@@ -3,7 +3,7 @@ import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 
 /** Блок «Документы проверены» (что сверил модератор при одобрении). */
-export function VerifiedDocs({ v }: { v: { checkedAt: string; items: { key: string; ok: boolean }[] } | null }) {
+export function VerifiedDocs({ v }: { v: { checkedAt: string; items: { key: string; ok: boolean }[]; cadastre?: { checked: boolean; encumbrance: string } | null; insurance?: { mode: string; insurer: string | null } | null } | null }) {
   const { t } = useApp();
   if (!v) return null;
   const ok = v.items.filter((i) => i.ok);
@@ -22,6 +22,18 @@ export function VerifiedDocs({ v }: { v: { checkedAt: string; items: { key: stri
             <span className="tick">✓</span> {t('ver_' + i.key)}
           </li>
         ))}
+        {/* PRD v2 (F5): проверка по кадастру и страховка */}
+        {v.cadastre?.checked && (
+          <li>
+            <span className="tick">✓</span> {t(v.cadastre.encumbrance === 'none' ? 'ver_cadastre_clean' : 'ver_cadastre_checked')}
+          </li>
+        )}
+        {v.insurance?.mode === 'have' && (
+          <li>
+            <span className="tick">✓</span> {t('ver_insured')}
+            {v.insurance.insurer ? ` · ${v.insurance.insurer}` : ''}
+          </li>
+        )}
       </ul>
       <p className="small muted" style={{ margin: 0 }}>
         {t('verified_hint')}

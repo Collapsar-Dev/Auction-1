@@ -96,11 +96,20 @@ export class LotsController {
     const { step, data } = z.object({ step: z.number().int().min(1).max(5), data: z.any() }).parse(b);
     return this.lots.saveStep(await this.auth.user(req), id, step, data ?? {});
   }
+  @Get('lots/:id/messages')
+  async messages(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    return this.lots.messages(id, await this.auth.user(req), false);
+  }
+  @Post('lots/:id/messages')
+  async postMessage(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() req: Request) {
+    return this.lots.postMessage(id, await this.auth.user(req), false, b?.text);
+  }
   @Post('lots/:id/media')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024 } }))
-  async media(@Param('id', ParseIntPipe) id: number, @Query('kind') kind: string, @UploadedFile() file: Express.Multer.File, @Req() req: Request) {
+  async media(@Param('id', ParseIntPipe) id: number, @Query('kind') kind: string, @Query('room') room: string | undefined, @Query('docType') docType: string | undefined, @UploadedFile() file: Express.Multer.File, @Req() req: Request) {
     if (!file) fail('FILE_REQUIRED');
-    return this.lots.addMedia(await this.auth.user(req), id, kind === 'extract' ? 'extract' : 'photo', file);
+    const k = kind === 'extract' ? 'extract' : kind === 'document' ? 'document' : 'photo';
+    return this.lots.addMedia(await this.auth.user(req), id, k, file, { room, docType });
   }
   @Delete('lots/:id/media/:mid')
   async delMedia(@Param('id', ParseIntPipe) id: number, @Param('mid', ParseIntPipe) mid: number, @Req() req: Request) {

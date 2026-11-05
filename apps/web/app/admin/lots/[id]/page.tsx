@@ -91,6 +91,28 @@ export default function AdminLot() {
             ))}
             <p className="small muted">Проверьте: собственник в выписке = продавец (все собственники согласны); нет ареста и ипотеки без согласия банка; данные и фото соответствуют выписке.</p>
           </div>
+          {/* PRD v2 (F11.2): итог проверки по кадастру, документы, подписи комнат у фото, страховка */}
+          <div className="card stack small">
+            <h3>Проверка по кадастру</h3>
+            {d.lot.cadastre_check ? (
+              <div className={'notice ' + (d.lot.cadastre_check.found && d.lot.cadastre_check.encumbrance === 'none' && d.lot.cadastre_check.ownerMatches ? 'ok' : 'warn')}>
+                {d.lot.cadastre_check.found ? 'найден' : 'НЕ НАЙДЕН'} · собственник: {d.lot.cadastre_check.ownerMatches ? 'продавец' : 'другой (нужна доверенность)'} · обременение: {d.lot.cadastre_check.encumbrance} · {fmtDate(d.lot.cadastre_check.checkedAt)}
+              </div>
+            ) : (
+              <span className="muted">нет данных (лот создан до v0.3)</span>
+            )}
+            <h3>Документы (ссылка на 5 мин)</h3>
+            {(d.documents || []).length === 0 && <span className="muted">—</span>}
+            {(d.documents || []).map((x: any) => (
+              <a key={x.id} href={x.url} target="_blank">
+                {DOC_RU[x.docType] ?? x.docType} · {fmtDate(x.uploadedAt)}
+              </a>
+            ))}
+            <h3>Фото по комнатам</h3>
+            <span>{Object.entries((d.photoRooms || []).reduce((a: any, r: string) => ({ ...a, [r]: (a[r] || 0) + 1 }), {})).map(([r, n]) => `${r} ×${n}`).join(' · ') || '—'}</span>
+            <h3>Страховка</h3>
+            <span>{d.lot.insurance ? `${d.lot.insurance.mode}${d.lot.insurance.insurer ? ' · ' + d.lot.insurance.insurer : ''}${d.lot.insurance.policy_no ? ' · полис ' + d.lot.insurance.policy_no : ''}` : '—'}</span>
+          </div>
           {d.valuations?.length > 0 && (
             <div className="card stack">
               <h3>Оценка (публично)</h3>
@@ -172,8 +194,48 @@ export default function AdminLot() {
               </div>
             ))}
           </div>
+          <StaffMessages lotId={id} />
           {msg && <p className="notice">{msg}</p>}
         </aside>
+      </div>
+    </div>
+  );
+}
+
+const DOC_RU: Record<string, string> = {
+  encumbrance: 'Справка об отсутствии ареста и ипотеки',
+  tech_passport: 'Технический паспорт',
+  power_of_attorney: 'Доверенность',
+  co_owner_consent: 'Согласие совладельцев',
+  insurance_policy: 'Страховой полис',
+};
+
+/** PRD v2 (F9.5 / F11.2): переписка модератора с продавцом. Продавцу уходит письмо. */
+function StaffMessages({ lotId }: { lotId: string | number }) {
+  const [items, setItems] = useState<any[]>([]);
+  const [text, setText] = useState('');
+  const load = () => api(`/admin/lots/${lotId}/messages`).then(setItems).catch(() => setItems([]));
+  useEffect(() => {
+    load();
+  }, [lotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const send = async () => {
+    await api(`/admin/lots/${lotId}/messages`, { body: { text } });
+    setText('');
+    load();
+  };
+  return (
+    <div className="card stack small">
+      <h3>Переписка с продавцом</h3>
+      {items.map((m) => (
+        <div key={m.id}>
+          <b>{m.author_role === 'staff' ? m.staff_name || 'Модератор' : 'Продавец'}</b> · {fmtDate(m.created_at)}: {m.text}
+        </div>
+      ))}
+      <div className="row gap">
+        <input className="input" style={{ flex: 1 }} value={text} maxLength={2000} placeholder="Написать продавцу (придёт письмо)" onChange={(e) => setText(e.target.value)} />
+        <button className="btn primary sm" disabled={!text.trim()} onClick={send}>
+          Отправить
+        </button>
       </div>
     </div>
   );

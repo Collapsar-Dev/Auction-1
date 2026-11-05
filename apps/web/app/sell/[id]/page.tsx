@@ -24,6 +24,7 @@ export default function Wizard() {
   const [busy, setBusy] = useState(false);
   const [accept, setAccept] = useState(false);
   const [done, setDone] = useState(false);
+  const [room, setRoom] = useState('living'); // PRD v2: комната для следующих загружаемых фото (хук — до любых return)
 
   const load = async (goTo?: number) => {
     const r = await api(`/lots/${id}/draft`);
@@ -39,6 +40,9 @@ export default function Wizard() {
       registration_opens_at: r.lot.registration_opens_at ? toYerevanInput(r.lot.registration_opens_at) : '',
       allow_late_registration: r.lot.allow_late_registration ?? true,
       guarantee_percent: r.lot.guarantee_percent ?? 1,
+      ins_mode: r.insurance?.mode ?? 'none',
+      ins_insurer: r.insurance?.insurer ?? '',
+      ins_policy: r.insurance?.policy_no ?? '',
     });
     if (goTo) setStep(goTo);
     else setStep(Math.min(5, r.lot.draft_step || 1));
@@ -75,6 +79,7 @@ export default function Wizard() {
           registration_opens_at: form.registration_opens_at ? fromYerevanInput(form.registration_opens_at) : null,
           allow_late_registration: form.allow_late_registration !== false,
           guarantee_percent: form.guarantee_percent === '' || form.guarantee_percent === undefined ? undefined : Number(form.guarantee_percent),
+          insurance: { mode: form.ins_mode || 'none', ...(form.ins_mode === 'have' ? { insurer: form.ins_insurer || undefined, policy_no: form.ins_policy || undefined } : {}) },
         };
       await api(`/lots/${id}`, { method: 'PATCH', body: { step: s, data } });
       await load(s + 1);
@@ -84,14 +89,16 @@ export default function Wizard() {
       setBusy(false);
     }
   };
-  const upload = async (files: FileList | null, kind: 'photo' | 'extract') => {
+  const upload = async (files: FileList | null, kind: 'photo' | 'extract' | 'document', docType = '') => {
     if (!files) return;
     setErr('');
+    // PRD v2 (F9.3): у фото — подпись комнаты, у документа — его тип
+    const extra = kind === 'photo' ? `&room=${room}` : kind === 'document' ? `&docType=${docType}` : '';
     for (const f of Array.from(files)) {
       const fd = new FormData();
       fd.append('file', f);
       try {
-        await api(`/lots/${id}/media?kind=${kind}`, { method: 'POST', form: fd });
+        await api(`/lots/${id}/media?kind=${kind}${extra}`, { method: 'POST', form: fd });
       } catch (e) {
         setErr(tErr(e));
       }
@@ -104,13 +111,18 @@ export default function Wizard() {
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="hsl(${hue},45%,82%)"/><rect x="250" y="230" width="300" height="250" fill="hsl(${hue},40%,40%)"/><polygon points="220,240 400,110 580,240" fill="hsl(${(hue + 30) % 360},40%,30%)"/><text x="30" y="570" font-family="Arial" font-size="26" fill="#222">Demo ${i + 1}</text></svg>`;
       const fd = new FormData();
       fd.append('file', new Blob([svg], { type: 'image/svg+xml' }), `demo${i}.svg`);
-      await api(`/lots/${id}/media?kind=photo`, { method: 'POST', form: fd }).catch((e) => setErr(tErr(e)));
+      await api(`/lots/${id}/media?kind=photo&room=${['living', 'kitchen', 'bathroom', 'bedroom', 'facade'][i % 5]}`, { method: 'POST', form: fd }).catch((e) => setErr(tErr(e)));
     }
     const pdf = new Blob(['%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF'], { type: 'application/pdf' });
     if (!d.extracts.length) {
       const fd = new FormData();
       fd.append('file', pdf, 'extract.pdf');
       await api(`/lots/${id}/media?kind=extract`, { method: 'POST', form: fd }).catch(() => {});
+    }
+    if (!d.documents?.some((x: any) => x.docType === 'encumbrance')) {
+      const fd = new FormData();
+      fd.append('file', pdf, 'encumbrance.pdf');
+      await api(`/lots/${id}/media?kind=document&docType=encumbrance`, { method: 'POST', form: fd }).catch(() => {});
     }
     load(3);
   };
@@ -203,6 +215,15 @@ export default function Wizard() {
             <Nav onNext={() => save(1)} busy={busy} />
           </div>
         )}
+        {step === 1 && d.cadastre && (
+          <div className={'notice ' + (d.cadastre.found && d.cadastre.encumbrance !== 'arrest' ? (d.cadastre.ownerMatches ? 'ok' : 'warn') : 'bad')}>
+            {!d.cadastre.found
+              ? t('cad_not_found')
+              : d.cadastre.encumbrance === 'arrest'
+                ? t('cad_arrest')
+                : [t('cad_found'), d.cadastre.ownerMatches ? t('cad_owner_ok') : t('cad_owner_other'), d.cadastre.encumbrance === 'mortgage' ? t('cad_mortgage') : t('cad_clean')].join(' · ')}
+          </div>
+        )}
         {step === 2 && (
           <div className="card stack">
             <div className="form-grid">
@@ -249,6 +270,9 @@ export default function Wizard() {
             <div className="photo-grid">
               {d.photos.map((p: any) => (
                 <div key={p.id} className="ph" style={{ backgroundImage: `url(${p.url})` }}>
+                  <span className="badge" style={{ position: 'absolute', left: 6, bottom: 6, fontSize: 11 }}>
+                    {t('room_' + (p.room || 'other'))}
+                  </span>
                   {editable && (
                     <button className="btn sm" onClick={() => removeMedia(p.id)}>
                       ✕
@@ -257,7 +281,20 @@ export default function Wizard() {
                 </div>
               ))}
             </div>
-            <input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(e) => upload(e.target.files, 'photo')} />
+            <div className="row gap" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <label className="f" style={{ minWidth: 200 }}>
+                {t('photo_room')}
+                <select className="input" value={room} onChange={(e) => setRoom(e.target.value)}>
+                  {ROOMS.map((r) => (
+                    <option key={r} value={r}>
+                      {t('room_' + r)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={(e) => upload(e.target.files, 'photo')} />
+            </div>
+            <p className="small muted">{t('photo_rooms_hint')}</p>
             {devTools && editable && (
               <button className="btn sm" style={{ alignSelf: 'start' }} onClick={demoPhotos}>
                 {t('add_demo_photos')}
@@ -266,6 +303,21 @@ export default function Wizard() {
             <h3>{t('extract')}</h3>
             <div className="small">{d.extracts.length ? `✓ ${d.extracts.length}` : '—'}</div>
             <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => upload(e.target.files, 'extract')} />
+            <h3>{t('documents')}</h3>
+            {DOCS.map((dt) => {
+              const n = (d.documents || []).filter((x: any) => x.docType === dt).length;
+              return (
+                <div key={dt} className="row gap small" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ minWidth: 280 }}>
+                    {n ? '✓ ' : ''}
+                    {t('doc_' + dt)}
+                    {dt === 'encumbrance' && <b className="error"> *</b>}
+                  </span>
+                  {editable && <input type="file" accept="application/pdf,image/jpeg,image/png" onChange={(e) => upload(e.target.files, 'document', dt)} />}
+                </div>
+              );
+            })}
+            <p className="small muted">{t('documents_hint')}</p>
             <ValuationForm lotId={id} items={d.valuations} editable={editable} onChange={() => load(3)} />
             <Nav onBack={() => setStep(2)} onNext={() => save(3)} busy={busy} />
           </div>
@@ -305,6 +357,28 @@ export default function Wizard() {
             <label className="check small">
               <input type="checkbox" checked={form.allow_late_registration !== false} onChange={set('allow_late_registration')} /> {t('allow_late_registration')}
             </label>
+            <h3>{t('insurance')}</h3>
+            <div className="row gap" style={{ flexWrap: 'wrap' }}>
+              {['have', 'order', 'none'].map((m) => (
+                <label key={m} className="check small">
+                  <input type="radio" name="ins" checked={(form.ins_mode || 'none') === m} onChange={() => setForm({ ...form, ins_mode: m })} /> {t('ins_' + m)}
+                </label>
+              ))}
+            </div>
+            {form.ins_mode === 'have' && (
+              <div className="form-grid">
+                <label className="f">
+                  {t('ins_insurer')}
+                  <input className="input" value={form.ins_insurer || ''} onChange={set('ins_insurer')} />
+                </label>
+                <label className="f">
+                  {t('ins_policy')}
+                  <input className="input" value={form.ins_policy || ''} onChange={set('ins_policy')} />
+                </label>
+              </div>
+            )}
+            {form.ins_mode === 'have' && <p className="small muted">{t('ins_have_hint')}</p>}
+            {form.ins_mode === 'order' && <p className="small muted">{t('ins_order_hint')}</p>}
             {d.preview && (
               <div className="kv">
                 <span>{t('your_deposit_for_buyers')}</span>
@@ -353,6 +427,14 @@ export default function Wizard() {
             <label className="check small">
               <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} /> {t('seller_offer')}
             </label>
+            {d.readiness?.length > 0 && (
+              <div className="notice bad stack">
+                <b>{t('readiness_title')}</b>
+                {d.readiness.map((r: any, i: number) => (
+                  <span key={i}>✕ {readinessText(t, r)}</span>
+                ))}
+              </div>
+            )}
             {d.submitBlockers.length > 0 && (
               <div className="notice warn">
                 {t('missing')}:{' '}
@@ -367,13 +449,14 @@ export default function Wizard() {
               <button className="btn ghost" onClick={() => setStep(4)}>
                 {t('back')}
               </button>
-              <button className="btn primary" disabled={!accept || d.submitBlockers.length > 0} onClick={submit}>
+              <button className="btn primary" disabled={!accept || d.submitBlockers.length > 0 || d.readiness?.length > 0} onClick={submit}>
                 {t('submit')}
               </button>
             </div>
           </div>
         )}
       </fieldset>
+      {d.lot.raw_status !== 'draft' && <LotMessages lotId={id} />}
       {err && <p className="error">{err}</p>}
     </div>
   );
@@ -489,6 +572,59 @@ function ValuationForm({ lotId, items, editable, onChange }: { lotId: string; it
           {err && <p className="error">{err}</p>}
         </>
       )}
+    </div>
+  );
+}
+
+const ROOMS = ['facade', 'living', 'kitchen', 'bedroom', 'bathroom', 'view', 'plan', 'yard', 'other'];
+const DOCS = ['encumbrance', 'tech_passport', 'power_of_attorney', 'co_owner_consent', 'insurance_policy'];
+
+/** PRD v2 (F9.4): что мешает отправить на модерацию — понятными словами. */
+function readinessText(t: (k: string, p?: any) => string, r: { code: string; data?: any }) {
+  if (r.code === 'DOCUMENT_REQUIRED') return t('need_doc', { doc: t('doc_' + r.data.doc) });
+  if (r.code === 'PHOTOS_ROOMS_MISSING') return t('need_rooms', { rooms: r.data.missing.map((x: string) => t('room_' + x)).join(', ') });
+  return t('err_' + r.code);
+}
+
+/** PRD v2 (F9.5): переписка продавца с модератором по лоту. */
+function LotMessages({ lotId }: { lotId: string | number }) {
+  const { t, tErr } = useApp();
+  const [items, setItems] = useState<any[]>([]);
+  const [text, setText] = useState('');
+  const [err, setErr] = useState('');
+  const load = () => api(`/lots/${lotId}/messages`).then(setItems).catch(() => setItems([]));
+  useEffect(() => {
+    load();
+  }, [lotId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const send = async () => {
+    setErr('');
+    try {
+      await api(`/lots/${lotId}/messages`, { body: { text } });
+      setText('');
+      load();
+    } catch (e) {
+      setErr(tErr(e));
+    }
+  };
+  return (
+    <div className="card stack">
+      <h3>{t('messages_title')}</h3>
+      {items.length === 0 && <p className="small muted">{t('messages_empty')}</p>}
+      {items.map((m) => (
+        <div key={m.id} className={'notice ' + (m.author_role === 'staff' ? '' : 'ok')} style={{ alignSelf: m.author_role === 'staff' ? 'flex-start' : 'flex-end', maxWidth: '75%' }}>
+          <div className="small muted">
+            {m.author_role === 'staff' ? t('moderator') : t('you')} · {fmtDate(m.created_at)}
+          </div>
+          {m.text}
+        </div>
+      ))}
+      <div className="row gap">
+        <input className="input" style={{ flex: 1 }} value={text} maxLength={2000} placeholder={t('message_placeholder')} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && text.trim() && send()} />
+        <button className="btn primary" disabled={!text.trim()} onClick={send}>
+          {t('send')}
+        </button>
+      </div>
+      {err && <p className="error">{err}</p>}
     </div>
   );
 }

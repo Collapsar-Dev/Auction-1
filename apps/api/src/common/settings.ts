@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   stepup_ttl_sec: 300, // AU-03
   phone_change_cooldown_days: 7, // AU-04
   photos_min: 10, // SC-04
+  photo_rooms_required: 'living,kitchen,bathroom', // PRD v2 (F9.3): обязательные подписи комнат у фото (через запятую; пусто — не проверять)
   photos_max: 30,
   extract_max_workdays: 15,
   hold_days: 30, // Q-02: срок блокировки в фейковом банке

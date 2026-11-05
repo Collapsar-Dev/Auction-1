@@ -1,3 +1,4 @@
+import { FakeCadastre } from '../../adapters/cadastre';
 import { SellerService } from '../seller/seller.service';
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
@@ -61,7 +62,14 @@ const step4 = z.object({
   allow_late_registration: z.boolean().optional(),
   // PRD v2 решение 6: взнос участника в % (0–10, шаг 0,1); не передан — по умолчанию из настроек
   guarantee_percent: z.number().min(0).max(10).optional(),
+  // PRD v2 (F9.3): страховка — есть полис / заказать у партнёра / без страховки
+  insurance: z
+    .object({ mode: z.enum(['have', 'order', 'none']), insurer: z.string().max(200).optional(), policy_no: z.string().max(100).optional(), valid_until: z.string().optional() })
+    .optional(),
 });
+
+export const PHOTO_ROOMS = ['facade', 'living', 'kitchen', 'bedroom', 'bathroom', 'view', 'plan', 'yard', 'other'] as const;
+export const DOC_TYPES = ['encumbrance', 'tech_passport', 'co_owner_consent', 'power_of_attorney', 'insurance_policy'] as const;
 
 /** PRD v2 §2: статусы лота для покупателя и порядок в каталоге. */
 export const STAGE_ORDER = ['in_progress', 'registration_open', 'upcoming', 'awaiting_contract', 'finished', 'no_sale', 'cancelled'] as const;
@@ -87,6 +95,7 @@ export class LotsService {
     private audit: Audit,
     private storage: Storage,
     private kms: FakeKms,
+    private cadastre: FakeCadastre,
     private auth: AuthService,
     private notify: NotifyService,
     private plans: PlansService,
@@ -127,8 +136,8 @@ export class LotsService {
       const bp = v.guarantee_percent === undefined ? Number(s.guarantee_default_bp ?? 100) : Math.round(v.guarantee_percent * 100);
       if (bp > Number(s.guarantee_max_bp ?? 1000)) fail('GUARANTEE_TOO_HIGH', 400, { maxPercent: Number(s.guarantee_max_bp ?? 1000) / 100 });
       await this.db.q(
-        `UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, published_at=$6, registration_opens_at=$7, allow_late_registration=$8, guarantee_bp=$9, draft_step=GREATEST(draft_step,5) WHERE id=$1`,
-        [lotId, v.start_price, v.opens_at, v.closes_at, guaranteeFor(v.start_price, bp, s), v.published_at ?? null, v.registration_opens_at ?? null, v.allow_late_registration ?? true, bp],
+        `UPDATE lots SET start_price=$2, opens_at=$3, closes_at=$4, deposit_amount=$5, published_at=$6, registration_opens_at=$7, allow_late_registration=$8, guarantee_bp=$9, insurance=coalesce($10, insurance), draft_step=GREATEST(draft_step,5) WHERE id=$1`,
+        [lotId, v.start_price, v.opens_at, v.closes_at, guaranteeFor(v.start_price, bp, s), v.published_at ?? null, v.registration_opens_at ?? null, v.allow_late_registration ?? true, bp, v.insurance ? JSON.stringify(v.insurance) : null],
       );
       return this.draft(user, lotId);
     } else if (step !== 3 && step !== 5) fail('STEP_INVALID');
@@ -137,8 +146,59 @@ export class LotsService {
       const sets = keys.map((k, i) => `${k}=$${i + 2}`).join(', ');
       await this.db.q(`UPDATE properties SET ${sets} WHERE id=$1`, [prop.id, ...keys.map((k) => (k === 'description_i18n' ? JSON.stringify(fields[k]) : fields[k]))]);
     }
+    if (step === 1 && fields.cadastral_no) {
+      // PRD v2 (F9.1): проверка по кадастру — найден ли объект, совпадает ли собственник, нет ли ареста или ипотеки
+      const r = await this.cadastre.lookup(String(fields.cadastral_no), this.clock.now());
+      const check = { ...r, ownerMatches: r.found && r.ownerIsApplicant };
+      await this.db.q('UPDATE lots SET cadastre_check=$2 WHERE id=$1', [lotId, JSON.stringify(check)]);
+    }
     await this.db.q('UPDATE lots SET draft_step=GREATEST(draft_step,$2) WHERE id=$1', [lotId, Math.min(5, step + 1)]);
     return this.draft(user, lotId);
+  }
+
+  /** PRD v2 (F9.5): переписка продавца и модератора по лоту. */
+  async messages(lotId: number, viewer: User, asStaff: boolean) {
+    const lot = await this.db.maybe<{ seller_id: number }>('SELECT seller_id FROM lots WHERE id=$1', [lotId]);
+    if (!lot || (!asStaff && lot.seller_id !== viewer.id)) fail('LOT_NOT_FOUND', 404);
+    return this.db.q(
+      `SELECT m.id, m.author_role, m.text, m.created_at, CASE WHEN m.author_role='staff' THEN u.full_name ELSE NULL END AS staff_name
+       FROM lot_messages m JOIN users u ON u.id=m.author_id WHERE m.lot_id=$1 ORDER BY m.id`,
+      [lotId],
+    );
+  }
+  async postMessage(lotId: number, author: User, asStaff: boolean, text: string) {
+    const lot = await this.db.maybe<{ seller_id: number; status: string }>('SELECT seller_id, status FROM lots WHERE id=$1', [lotId]);
+    if (!lot || (!asStaff && lot.seller_id !== author.id)) fail('LOT_NOT_FOUND', 404);
+    const body = String(text ?? '').trim();
+    if (!body || body.length > 2000) fail('MESSAGE_INVALID');
+    const m = await this.db.one(`INSERT INTO lot_messages(lot_id, author_id, author_role, text, created_at) VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at`, [
+      lotId,
+      author.id,
+      asStaff ? 'staff' : 'seller',
+      body,
+      this.clock.now(),
+    ]);
+    if (asStaff) await this.notify.queue(lot!.seller_id, 'email', 'lot_message', { lotId, text: body.slice(0, 500), link: `${process.env.WEB_URL || 'http://localhost:3000'}/sell/${lotId}` });
+    await this.audit.log(author.id, 'lot.message', 'lot', lotId, null, { role: asStaff ? 'staff' : 'seller' });
+    return m;
+  }
+
+  /** PRD v2 (F9.4): что мешает отправить лот на модерацию — для экрана «Проверка и отправка» и для submit. */
+  async readiness(lot: any, media: { kind: string; room: string | null; doc_type: string | null }[]) {
+    const s = await this.settings.all();
+    const out: { code: string; data?: any }[] = [];
+    const c = lot.cadastre_check;
+    if (!c || !c.found) out.push({ code: 'CADASTRE_NOT_FOUND' });
+    else {
+      if (c.encumbrance === 'arrest') out.push({ code: 'CADASTRE_ARREST' });
+      if (!c.ownerMatches && !media.some((m) => m.doc_type === 'power_of_attorney')) out.push({ code: 'OWNER_MISMATCH', data: { need: 'power_of_attorney' } });
+    }
+    if (!media.some((m) => m.doc_type === 'encumbrance')) out.push({ code: 'DOCUMENT_REQUIRED', data: { doc: 'encumbrance' } });
+    const need = String(s.photo_rooms_required ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    const missing = need.filter((r) => !media.some((m) => m.kind === 'photo' && (m.room === r || (r === 'living' && m.room === 'bedroom'))));
+    if (missing.length) out.push({ code: 'PHOTOS_ROOMS_MISSING', data: { missing } });
+    if (lot.insurance?.mode === 'have' && !media.some((m) => m.doc_type === 'insurance_policy')) out.push({ code: 'DOCUMENT_REQUIRED', data: { doc: 'insurance_policy' } });
+    return out;
   }
 
   /** PRD v2: показ ≤ регистрация ≤ начало торгов. */
@@ -161,7 +221,9 @@ export class LotsService {
     if (opensAt.getTime() < minOpen) fail('START_TOO_SOON', 400, { minOpensAt: new Date(minOpen).toISOString() });
   }
 
-  async addMedia(user: User, lotId: number, kind: 'photo' | 'extract', file: { buffer: Buffer; mimetype: string; originalname: string }) {
+  async addMedia(user: User, lotId: number, kind: 'photo' | 'extract' | 'document', file: { buffer: Buffer; mimetype: string; originalname: string }, opts: { room?: string; docType?: string } = {}) {
+    if (kind === 'photo' && opts.room && !(PHOTO_ROOMS as readonly string[]).includes(opts.room)) fail('ROOM_INVALID', 400, { rooms: PHOTO_ROOMS });
+    if (kind === 'document' && !(DOC_TYPES as readonly string[]).includes(opts.docType ?? '')) fail('DOC_TYPE_INVALID', 400, { types: DOC_TYPES });
     const lot = await this.ownDraft(user, lotId);
     const s = await this.settings.all();
     if (kind === 'photo') {
@@ -173,15 +235,18 @@ export class LotsService {
     } else if (!/^(application\/pdf|image\/(jpeg|png))$/.test(file.mimetype)) fail('FILE_TYPE');
     if (file.buffer.length > 15 * 1024 * 1024) fail('FILE_TOO_LARGE');
     const ext = file.mimetype === 'image/svg+xml' ? 'svg' : file.mimetype.split('/')[1].replace('jpeg', 'jpg');
-    const key = this.storage.put(file.buffer, ext, kind === 'extract'); // выписку видит только модератор
+    const priv = kind !== 'photo'; // выписку и документы видит только модератор
+    const key = this.storage.put(file.buffer, ext, priv);
     const sort = (await this.db.one<{ m: number }>('SELECT coalesce(max(sort),0)+1 m FROM property_media WHERE property_id=$1', [lot.property_id])).m;
-    const m = await this.db.one(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort, uploaded_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`, [
+    const m = await this.db.one(`INSERT INTO property_media(property_id, kind, storage_key, is_private, sort, uploaded_at, room, doc_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [
       lot.property_id,
       kind,
       key,
-      kind === 'extract',
+      priv,
       sort,
       this.clock.now(),
+      kind === 'photo' ? opts.room ?? 'other' : null,
+      kind === 'document' ? opts.docType : null,
     ]);
     return { id: m.id };
   }
@@ -233,15 +298,19 @@ export class LotsService {
     const lot = await this.db.maybe(`SELECT * FROM lots WHERE id=$1 AND seller_id=$2`, [lotId, user.id]);
     if (!lot) fail('LOT_NOT_FOUND', 404);
     const prop = await this.db.one('SELECT * FROM properties WHERE id=$1', [lot.property_id]);
-    const media = await this.db.q('SELECT id, kind, storage_key, is_private, sort FROM property_media WHERE property_id=$1 ORDER BY sort', [lot.property_id]);
+    const media = await this.db.q('SELECT id, kind, storage_key, is_private, sort, room, doc_type FROM property_media WHERE property_id=$1 ORDER BY sort', [lot.property_id]);
     const mod = await this.db.q('SELECT decision, comment, created_at FROM moderation WHERE lot_id=$1 ORDER BY id DESC', [lotId]);
     const s = await this.settings.all();
     const cards = await this.db.one<{ c: number }>(`SELECT count(*)::int c FROM cards WHERE user_id=$1 AND status='active'`, [user.id]);
     return {
       lot: this.lotPublicFields(lot),
       property: prop,
-      photos: media.filter((m) => m.kind === 'photo').map((m) => ({ id: m.id, url: this.storage.publicUrl(m.storage_key) })),
+      photos: media.filter((m) => m.kind === 'photo').map((m) => ({ id: m.id, url: this.storage.publicUrl(m.storage_key), room: m.room })),
       extracts: media.filter((m) => m.kind === 'extract').map((m) => ({ id: m.id })),
+      documents: media.filter((m) => m.kind === 'document').map((m) => ({ id: m.id, docType: m.doc_type })),
+      cadastre: lot.cadastre_check ?? null,
+      insurance: lot.insurance ?? null,
+      readiness: await this.readiness(lot, media),
       valuations: await this.valuations(lot.property_id),
       moderation: mod,
       preview: lot.start_price
@@ -284,6 +353,10 @@ export class LotsService {
     if (photos.c < s.photos_min || photos.c > s.photos_max) fail('PHOTOS_COUNT', 400, { min: s.photos_min, max: s.photos_max });
     const ex = await this.db.maybe(`SELECT id FROM property_media WHERE property_id=$1 AND kind='extract'`, [lot.property_id]);
     if (!ex) fail('EXTRACT_REQUIRED');
+    // PRD v2 (F9.4): кадастр, обязательные документы, фото по комнатам, страховка
+    const media = await this.db.q('SELECT kind, room, doc_type FROM property_media WHERE property_id=$1', [lot.property_id]);
+    const problems = await this.readiness(lot, media);
+    if (problems.length) fail(problems[0].code, 400, { problems });
     if (!lot.start_price) fail('LOT_INCOMPLETE', 400, { step: 'terms' });
     await this.validateTerms(lot.start_price, new Date(lot.opens_at), new Date(lot.closes_at), null);
     await this.db.tx(async (t) => {
@@ -570,6 +643,9 @@ export class LotsService {
     return {
       checkedAt: v.checked_at ?? l.approved_at,
       items: [{ key: 'seller_kyc', ok: seller.kyc_status === 'verified' }, ...VERIFICATION_KEYS.map((k) => ({ key: k, ok: !!v[k] }))],
+      // PRD v2 (F5): проверка по кадастру и страховка — без самих документов
+      cadastre: l.cadastre_check ? { checked: !!l.cadastre_check.found, encumbrance: l.cadastre_check.encumbrance, checkedAt: l.cadastre_check.checkedAt } : null,
+      insurance: l.insurance ? { mode: l.insurance.mode, insurer: l.insurance.mode === 'have' ? l.insurance.insurer ?? null : null } : null,
     };
   }
 

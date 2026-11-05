@@ -52,12 +52,12 @@ export class AdminService {
 
   async lot(id: number) {
     const l = await this.db.maybe(
-      `SELECT l.id, l.status, l.start_price, l.opens_at, l.closes_at, l.deposit_amount, l.approved_at, l.ended_reason, l.extended_at, l.rules_snapshot, l.seller_id, l.relaunched_from FROM lots l WHERE id=$1`,
+      `SELECT l.id, l.status, l.start_price, l.opens_at, l.closes_at, l.deposit_amount, l.approved_at, l.ended_reason, l.extended_at, l.rules_snapshot, l.seller_id, l.relaunched_from, l.cadastre_check, l.insurance, l.guarantee_bp FROM lots l WHERE id=$1`,
       [id],
     );
     if (!l) fail('LOT_NOT_FOUND', 404);
     const p = await this.db.one(`SELECT * FROM properties WHERE id=(SELECT property_id FROM lots WHERE id=$1)`, [id]);
-    const media = await this.db.q('SELECT id, kind, storage_key, uploaded_at FROM property_media WHERE property_id=$1 ORDER BY sort', [p.id]);
+    const media = await this.db.q('SELECT id, kind, storage_key, uploaded_at, room, doc_type FROM property_media WHERE property_id=$1 ORDER BY sort', [p.id]);
     const seller = await this.db.one('SELECT id, full_name, phone, email, kyc_status, seller_blocked FROM users WHERE id=$1', [l.seller_id]);
     const mod = await this.db.q('SELECT m.*, u.username FROM moderation m LEFT JOIN users u ON u.id=m.moderator_id WHERE lot_id=$1 ORDER BY m.id DESC', [id]);
     const deal = await this.db.maybe('SELECT * FROM deals WHERE lot_id=$1', [id]);
@@ -70,6 +70,9 @@ export class AdminService {
       seller,
       photos: media.filter((m) => m.kind === 'photo').map((m) => this.storage.publicUrl(m.storage_key)),
       extracts: media.filter((m) => m.kind === 'extract').map((m) => ({ id: m.id, uploadedAt: m.uploaded_at, url: this.storage.signedUrl(m.storage_key, now) })),
+      // PRD v2 (F11.2): документы (ссылка на 5 минут), подписи комнат у фото, проверка по кадастру, страховка
+      documents: media.filter((m) => m.kind === 'document').map((m) => ({ id: m.id, docType: m.doc_type, uploadedAt: m.uploaded_at, url: this.storage.signedUrl(m.storage_key, now) })),
+      photoRooms: media.filter((m) => m.kind === 'photo').map((m) => m.room ?? 'other'),
       moderation: mod,
       valuations: valuations.map((v) => ({ ...v, url: this.storage.publicUrl(v.storage_key), storage_key: undefined })),
       verification: (await this.db.one('SELECT verification FROM lots WHERE id=$1', [id])).verification,

@@ -19,8 +19,9 @@ async function draft(s: any, price = 40_000_000) {
   await s.agent.patch(`/api/lots/${id}`).send({ step: 1, data: { property_type: 'apartment', region: 'Yerevan', settlement: 'Yerevan', street: 'Abovyan St', cadastral_no: '01-001-0001-0099' } }).expect(200);
   const step2 = { area_m2: 80, rooms: 3, bathrooms: 1, year_built: 2000, heating: 'central', condition: 'good', description_i18n: { ru: 'Квартира' }, floor: 3, building_floors: 9, building_type: 'monolith', has_elevator: true, has_balcony: true, parking: false };
   await s.agent.patch(`/api/lots/${id}`).send({ step: 2, data: step2 }).expect(200);
-  for (let i = 0; i < 10; i++) await s.agent.post(`/api/lots/${id}/media?kind=photo`).attach('file', png, { filename: `p${i}.png`, contentType: 'image/png' }).expect(201);
+  for (let i = 0; i < 10; i++) await s.agent.post(`/api/lots/${id}/media?kind=photo&room=${['living', 'kitchen', 'bathroom', 'bedroom', 'facade'][i % 5]}`).attach('file', png, { filename: `p${i}.png`, contentType: 'image/png' }).expect(201);
   await s.agent.post(`/api/lots/${id}/media?kind=extract`).attach('file', Buffer.from('%PDF-1.4'), { filename: 'e.pdf', contentType: 'application/pdf' }).expect(201);
+    await s.agent.post(`/api/lots/${id}/media?kind=document&docType=encumbrance`).attach('file', Buffer.from('%PDF-1.4'), { filename: 'enc.pdf', contentType: 'application/pdf' }).expect(201); // PRD v2: справка об отсутствии ареста и ипотеки
   const now = h.clock.ms();
   await s.agent.patch(`/api/lots/${id}`).send({ step: 4, data: { start_price: price, opens_at: new Date(now + 2 * DAY).toISOString(), closes_at: new Date(now + 6 * DAY).toISOString(), guarantee_percent: 1 } }).expect(200);
   return id as number;

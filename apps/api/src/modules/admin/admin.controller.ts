@@ -69,6 +69,14 @@ export class AdminController {
     await this.auth.staff(r);
     return this.chain.verifyAll();
   }
+  @Get('lots/:id/messages')
+  async lotMessages(@Param('id', ParseIntPipe) id: number, @Req() r: Request) {
+    return this.lots.messages(id, await this.auth.staff(r), true);
+  }
+  @Post('lots/:id/messages')
+  async lotMessage(@Param('id', ParseIntPipe) id: number, @Body() b: any, @Req() r: Request) {
+    return this.lots.postMessage(id, await this.auth.staff(r), true, b?.text);
+  }
   @Get('kyc')
   async kycQueue(@Req() r: Request) {
     await this.auth.staff(r);
