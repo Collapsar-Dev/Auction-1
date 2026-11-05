@@ -17,8 +17,11 @@ export function Header() {
     <header className="top">
       <div className="container bar">
         <Link href="/" className="logo">
-          {t('brand').split('·')[0]}
-          <span>·{t('brand').split('·')[1]}</span>
+          <Logo />
+          <span className="logo-text">
+            {t('brand').split('·')[0]}
+            <span>·{t('brand').split('·')[1]}</span>
+          </span>
         </Link>
         <nav className="main">
           <Link href="/">{t('nav_catalog')}</Link>
@@ -97,5 +100,15 @@ export function StageBadge({ stage }: { stage: string }) {
       <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: STAGE_DOT[stage] ?? '#999' }} />
       {t('stage_' + stage)}
     </span>
+  );
+}
+
+/** Логотип «Абрикос»: абрикос с листиком (бренд-бук на канвасе, страница Identity). */
+export function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 32 32">
+      <circle cx="16" cy="18" r="12" fill="#F6A04D" />
+      <path d="M16 6c2-4 6-4 8-3-1 3-4 5-8 3z" fill="#3E7D3A" />
+    </svg>
   );
 }

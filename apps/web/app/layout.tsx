@@ -9,6 +9,13 @@ export const metadata: Metadata = { title: 'Аукцион тип 1 — дома
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="hy">
+      <head>
+        {/* «Абрикос»: Manrope; без сети — системный шрифт */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
+        <meta name="theme-color" content="#FFF7EF" />
+      </head>
       <body>
         <AppProvider>
           <Header />

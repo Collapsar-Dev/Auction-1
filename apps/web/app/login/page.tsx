@@ -213,12 +213,14 @@ function PasswordLogin({ onDone, onForgot }: { onDone: (r: any) => void; onForgo
         <input className="input big" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === 'Enter' && go()} />
       </label>
       {err && <p className="error">{err}</p>}
-      <button className="btn primary" disabled={busy || !login || !password} onClick={go}>
-        {t('enter')}
-      </button>
-      <button className="btn ghost" onClick={onForgot}>
-        {t('forgot_password')}
-      </button>
+      <div className="row gap">
+        <button className="btn primary" disabled={busy || !login || !password} onClick={go}>
+          {t('enter')}
+        </button>
+        <button className="btn ghost" onClick={onForgot}>
+          {t('forgot_password')}
+        </button>
+      </div>
     </>
   );
 }

@@ -13,7 +13,7 @@ export function AdSlot({ slot }: { slot: 'catalog' | 'lot' | 'partners' }) {
   const a = ads[0];
   if (!a) return null;
   return (
-    <a href={a.href} target="_blank" rel="noopener sponsored" className="card row gap" style={{ alignItems: 'center', textDecoration: 'none', color: 'inherit' }}>
+    <a href={a.href} target="_blank" rel="noopener sponsored" className="card row gap" style={{ alignItems: 'center', textDecoration: 'none', color: 'inherit', marginBottom: 18 }}>
       <span className="badge">{t('ad_label')}</span>
       <img src={a.image} alt="" style={{ height: 56, borderRadius: 8 }} />
       <span>
