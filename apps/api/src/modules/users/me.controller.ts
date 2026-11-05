@@ -1,3 +1,4 @@
+import { ChainService } from '../chain/chain.service';
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
@@ -34,6 +35,7 @@ export class MeController {
     private storage: Storage,
     private settings: SettingsService,
     private audit: Audit,
+    private chain: ChainService,
   ) {}
 
   @Get()
@@ -125,6 +127,11 @@ export class MeController {
   @Get('lots')
   async myLots(@Req() req: Request) {
     return this.lots.myLots((await this.auth.user(req)).id);
+  }
+  /** PRD v2 (F8): мои транзакции с хэш-цепочкой — браузер пересчитывает её сам. */
+  @Get('ledger')
+  async ledger(@Req() req: Request) {
+    return this.chain.myLedger((await this.auth.user(req)).id);
   }
   @Get('account')
   async account(@Req() req: Request) {

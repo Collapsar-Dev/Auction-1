@@ -19,6 +19,7 @@ import { CardsService } from './modules/cards/cards.service';
 import { AccountController } from './modules/cards/cards.controller';
 import { PlansService } from './modules/plans/plans.service';
 import { PasswordAuthService } from './modules/auth/password.service';
+import { ChainService } from './modules/chain/chain.service';
 import { EligibilityService } from './modules/lots/eligibility.service';
 import { LotsService } from './modules/lots/lots.service';
 import { LotsController } from './modules/lots/lots.controller';
@@ -59,6 +60,7 @@ import { FilesController } from './modules/files/files.controller';
     CardsService,
     PlansService,
     PasswordAuthService,
+    ChainService,
     EligibilityService,
     LotsService,
     DepositsService,

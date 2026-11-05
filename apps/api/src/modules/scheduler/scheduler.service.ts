@@ -1,3 +1,4 @@
+import { ChainService } from '../chain/chain.service';
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { Db } from '../../common/db';
 import { Clock, DAY, HOUR } from '../../common/clock';
@@ -31,6 +32,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
     private reveal: RevealService,
     private deals: DealsService,
     private deposits: DepositsService,
+   private chain: ChainService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -68,6 +70,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnApplicationSh
       if (this.due('subs', HOUR)) await this.subscriptionReminders();
       if (this.due('reconcile', DAY)) await this.reconcile();
       await this.notify.deliver();
+      await this.chain.seal(); // PRD v2: хэш-цепочки журнала и счетов
     } catch (e: any) {
       console.error('[scheduler]', e?.message);
     } finally {

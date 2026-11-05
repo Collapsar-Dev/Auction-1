@@ -1,3 +1,4 @@
+import { ChainService } from '../chain/chain.service';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { z } from 'zod';
@@ -22,6 +23,7 @@ export class AdminController {
     private risk: RiskService,
     private plans: PlansService,
     private scheduler: SchedulerService,
+    private chain: ChainService,
   ) {}
 
   @Get('overview')
@@ -61,6 +63,12 @@ export class AdminController {
   }
 
   // Пользователи
+  /** PRD v2 (F11.3): проверить целостность журнала аудита и цепочек счетов. */
+  @Get('chain/verify')
+  async chainVerify(@Req() r: Request) {
+    await this.auth.staff(r);
+    return this.chain.verifyAll();
+  }
   @Get('kyc')
   async kycQueue(@Req() r: Request) {
     await this.auth.staff(r);

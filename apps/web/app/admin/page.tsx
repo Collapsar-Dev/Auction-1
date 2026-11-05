@@ -11,7 +11,7 @@ const TABS: [string, string, boolean][] = [
   ['moderation', 'Модерация', false],
   ['lots', 'Лоты', false],
   ['users', 'Пользователи', false],
-  ['kyc', 'KYC вручную', false],
+  ['kyc', 'Проверка личности', false],
   ['deposits', 'Депозиты', false],
   ['deals', 'Сделки', false],
   ['risk', 'Риски (6A)', false],
@@ -23,6 +23,7 @@ const TABS: [string, string, boolean][] = [
   ['settings', 'Настройки', true],
   ['plans', 'Тарифы', true],
   ['audit', 'Журнал', true],
+  ['chain', 'Хэш-цепочки', false],
 ];
 
 export default function Page() {
@@ -69,6 +70,7 @@ function Admin() {
       {tab === 'disputes' && <Disputes />}
       {tab === 'outages' && <Outages />}
       {tab === 'notifications' && <Notifications />}
+      {tab === 'chain' && <Chain />}
       {tab === 'settings' && <Settings />}
       {tab === 'plans' && <Plans />}
       {tab === 'audit' && <Audit />}
@@ -539,5 +541,34 @@ function Audit() {
         ['Данные', (r) => <code className="mono">{r.after ? JSON.stringify(r.after).slice(0, 160) : ''}</code>],
       ]}
     />
+  );
+}
+
+/** PRD v2 (F11.3): целостность журнала аудита и цепочек счетов участников. */
+function Chain() {
+  const [r, setR] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try {
+      setR(await api('/admin/chain/verify'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const line = (ok: boolean, text: string) => <div className={'notice ' + (ok ? 'ok' : 'bad')}>{text}</div>;
+  return (
+    <div className="stack">
+      <button className="btn primary" disabled={busy} onClick={run}>
+        Проверить целостность цепочек
+      </button>
+      {r && (
+        <>
+          {line(r.audit.ok, r.audit.ok ? `✓ Журнал аудита: ${r.audit.rows} записей, цепочка цела` : `✕ Журнал аудита: расхождение в записи #${r.audit.brokenAt.refId} (${r.audit.brokenAt.reason})`)}
+          {line(r.ledger.ok, r.ledger.ok ? `✓ Счета участников: ${r.ledger.chains} цепочек, ${r.ledger.rows} записей` : `✕ Счета: нарушено ${r.ledger.broken.length} цепочек — ${r.ledger.broken.map((b: any) => `${b.chain} #${b.brokenAt.refId}`).join(', ')}`)}
+          <p className="small muted">Проверено {fmtDate(r.checkedAt)}. Суммы ставок в журнал не пишутся до итога (R-06) — только контрольные коды.</p>
+        </>
+      )}
+    </div>
   );
 }

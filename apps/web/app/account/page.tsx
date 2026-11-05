@@ -451,6 +451,7 @@ function Deposits() {
         ))}
       </div>
       <p className="small muted">{t('acc_model_card')}</p>
+      <LedgerCheck />
       <List
         rows={acc.items}
         cols={[
@@ -598,6 +599,51 @@ function Investor() {
           ['', (r) => fmtDate(r.created_at)],
         ]}
       />
+    </div>
+  );
+}
+
+/** PRD v2 (F8): мои транзакции с хэш-цепочкой; пересчёт SHA-256 — прямо в браузере, без доверия серверу. */
+function LedgerCheck() {
+  const { t } = useApp();
+  const [d, setD] = useState<any>(null);
+  const [res, setRes] = useState<{ ok: boolean; n: number; bad?: number } | null>(null);
+  useEffect(() => {
+    api('/me/ledger').then(setD);
+  }, []);
+  const sha = async (s: string) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const check = async () => {
+    let prev = d.genesis;
+    for (const e of d.entries) {
+      const h = await sha([prev, e.id, e.user_id, e.kind, e.amount, e.ref, e.created_at].join('|'));
+      if (e.prev_hash !== prev || h !== e.hash) return setRes({ ok: false, n: d.entries.length, bad: e.id });
+      prev = e.hash;
+    }
+    setRes({ ok: true, n: d.entries.length });
+  };
+  if (!d) return null;
+  return (
+    <div className="card stack">
+      <div className="row gap" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <b>{t('ledger_title')}</b>
+        <button className="btn sm" disabled={!d.entries.length} onClick={check}>
+          {t('ledger_check')}
+        </button>
+      </div>
+      {res && <div className={'notice ' + (res.ok ? 'ok' : 'bad')}>{res.ok ? t('ledger_ok', { n: res.n }) : t('ledger_bad', { id: res.bad })}</div>}
+      {d.entries.length === 0 && <p className="small muted">{t('ledger_empty')}</p>}
+      {[...d.entries].reverse().map((e: any) => (
+        <div key={e.id} className="row gap small" style={{ flexWrap: 'wrap' }}>
+          <span className="muted">{fmtDate(e.created_at)}</span>
+          <span>{t('led_' + e.kind)}</span>
+          {e.lot_id && <Link href={`/lots/${e.lot_id}`}>#{e.lot_id}</Link>}
+          <b>{e.kind.startsWith('try_') ? (e.kind === 'try_spent' ? '−1' : '+1') : fmtAmd(e.amount)}</b>
+          <code className="mono muted" title={e.hash}>
+            {e.prev_hash.slice(0, 4)}… → {e.hash.slice(0, 4)}…
+          </code>
+        </div>
+      ))}
+      <p className="small muted">{t('ledger_hint')}</p>
     </div>
   );
 }
