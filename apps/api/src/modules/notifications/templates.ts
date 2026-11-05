@@ -133,6 +133,26 @@ export const TEMPLATES: Record<string, Tpl> = {
     ru: { s: 'Сделка не состоялась: лот #{lotId}', b: '{reason}' },
     en: { s: 'Deal failed: lot #{lotId}', b: '{reason}' },
   },
+  partner_request_new: {
+    hy: { s: 'Նոր հայտ #{id}', b: 'Ծառայություն՝ {service}։ {comment}' },
+    ru: { s: 'Новая заявка #{id}', b: 'Услуга: {service}. {comment}' },
+    en: { s: 'New request #{id}', b: 'Service: {service}. {comment}' },
+  },
+  partner_request_answer: {
+    hy: { s: 'Հայտ #{id}՝ {partner}', b: 'Կարգավիճակ՝ {status}։ {reply}' },
+    ru: { s: 'Заявка #{id}: {partner}', b: 'Статус: {status}. {reply}' },
+    en: { s: 'Request #{id}: {partner}', b: 'Status: {status}. {reply}' },
+  },
+  partner_decision: {
+    hy: { s: 'Գործընկերոջ հայտ՝ {name}', b: 'Որոշում՝ {status}։ {reason}' },
+    ru: { s: 'Заявка партнёра: {name}', b: 'Решение: {status}. {reason}' },
+    en: { s: 'Partner application: {name}', b: 'Decision: {status}. {reason}' },
+  },
+  ad_decision: {
+    hy: { s: 'Գովազդ #{id}՝ {title}', b: 'Որոշում՝ {status}։ {reason}' },
+    ru: { s: 'Реклама #{id}: {title}', b: 'Решение: {status}. {reason}' },
+    en: { s: 'Ad #{id}: {title}', b: 'Decision: {status}. {reason}' },
+  },
   lot_message: {
     hy: { s: 'Լոտ #{lotId}՝ հաղորդագրություն մոդերատորից', b: '{text}\n\nՊատասխանել՝ {link}' },
     ru: { s: 'Лот #{lotId}: сообщение от модератора', b: '{text}\n\nОтветить: {link}' },

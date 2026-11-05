@@ -6,6 +6,7 @@ import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
 import { StageBadge, STAGES } from '@/components/Shell';
+import { AdSlot } from '@/components/AdSlot';
 
 const REGIONS = ['Yerevan', 'Aragatsotn', 'Ararat', 'Armavir', 'Gegharkunik', 'Kotayk', 'Lori', 'Shirak', 'Syunik', 'Tavush', 'Vayots Dzor'];
 
@@ -28,6 +29,7 @@ export default function Catalog() {
         <h1>{t('hero_title')}</h1>
         <p>{t('hero_text')}</p>
       </section>
+      <AdSlot slot="catalog" />
       <div className="filters">
         <label className="f">
           {t('f_type')}

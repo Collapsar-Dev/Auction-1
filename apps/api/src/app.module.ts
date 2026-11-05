@@ -23,6 +23,8 @@ import { ChainService } from './modules/chain/chain.service';
 import { SellerService } from './modules/seller/seller.service';
 import { SellerController } from './modules/seller/seller.controller';
 import { FakeCadastre } from './adapters/cadastre';
+import { PartnersService } from './modules/partners/partners.service';
+import { PartnersController } from './modules/partners/partners.controller';
 import { EligibilityService } from './modules/lots/eligibility.service';
 import { LotsService } from './modules/lots/lots.service';
 import { LotsController } from './modules/lots/lots.controller';
@@ -44,7 +46,7 @@ import { FilesController } from './modules/files/files.controller';
  * auction_type = 'type1': новые типы аукционов добавятся отдельным модулем правил.
  */
 @Module({
-  controllers: [AuthController, MeController, AccountController, LotsController, DealsController, AdminController, DevController, FilesController, SellerController],
+  controllers: [AuthController, MeController, AccountController, LotsController, DealsController, AdminController, DevController, FilesController, SellerController, PartnersController],
   providers: [
     { provide: APP_FILTER, useClass: AllErrorsFilter },
     Db,
@@ -66,6 +68,7 @@ import { FilesController } from './modules/files/files.controller';
     ChainService,
     SellerService,
     FakeCadastre,
+    PartnersService,
     EligibilityService,
     LotsService,
     DepositsService,

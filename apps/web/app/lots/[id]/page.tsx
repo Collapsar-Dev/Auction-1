@@ -7,6 +7,7 @@ import { useApp } from '@/lib/ctx';
 import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
 import { StageBadge } from '@/components/Shell';
+import { AdSlot } from '@/components/AdSlot';
 import { BidBlock } from '@/components/BidBlock';
 import { ResultTable } from '@/components/ResultTable';
 import { VerifiedDocs, Valuations } from '@/components/LotExtras';
@@ -177,6 +178,7 @@ export default function LotPage() {
         </div>
         <BidBlock data={d} reload={load} />
         <VerifiedDocs v={d.verification} />
+        <AdSlot slot="lot" />
         <div className="card">
           <h3>{t('rules_short')}</h3>
           <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>

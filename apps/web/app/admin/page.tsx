@@ -24,6 +24,8 @@ const TABS: [string, string, boolean][] = [
   ['plans', 'Тарифы', true],
   ['audit', 'Журнал', true],
   ['chain', 'Хэш-цепочки', false],
+  ['partners', 'Партнёры', false],
+  ['ads', 'Реклама', false],
 ];
 
 export default function Page() {
@@ -71,6 +73,8 @@ function Admin() {
       {tab === 'outages' && <Outages />}
       {tab === 'notifications' && <Notifications />}
       {tab === 'chain' && <Chain />}
+      {tab === 'partners' && <PartnersAdmin />}
+      {tab === 'ads' && <AdsAdmin />}
       {tab === 'settings' && <Settings />}
       {tab === 'plans' && <Plans />}
       {tab === 'audit' && <Audit />}
@@ -570,5 +574,96 @@ function Chain() {
         </>
       )}
     </div>
+  );
+}
+
+/** PRD v2 (F11.4): проверка лицензий партнёров. */
+function PartnersAdmin() {
+  const [rows, reload] = useLoad<any[]>('/admin/partners');
+  const decide = (id: number, action: string) => {
+    const reason = action === 'approve' ? undefined : ask('Причина (увидит партнёр)');
+    if (action !== 'approve' && !reason) return;
+    act(() => api(`/admin/partners/${id}/decide`, { body: { action, reason } }), reload);
+  };
+  return (
+    <T
+      rows={rows}
+      cols={[
+        ['#', (r) => r.id],
+        ['Партнёр', (r) => `${r.name} · ${r.kind} · ${r.city}`],
+        ['Владелец', (r) => `${r.owner_name || '—'} (KYC: ${r.kyc_status})`],
+        ['Лицензия', (r) => <a href={r.license_url} target="_blank">{r.license_no}</a>],
+        ['Статус', (r) => <b className={r.status === 'pending' ? 'error' : ''}>{r.status}</b>],
+        [
+          '',
+          (r) => (
+            <div className="row gap-s">
+              {r.status !== 'active' && (
+                <button className="btn sm primary" onClick={() => decide(r.id, 'approve')}>
+                  Одобрить
+                </button>
+              )}
+              {r.status === 'pending' && (
+                <button className="btn sm" onClick={() => decide(r.id, 'reject')}>
+                  Отклонить
+                </button>
+              )}
+              {r.status === 'active' && (
+                <button className="btn sm danger" onClick={() => decide(r.id, 'block')}>
+                  Заблокировать
+                </button>
+              )}
+            </div>
+          ),
+        ],
+      ]}
+    />
+  );
+}
+
+/** PRD v2 (F11.4): модерация рекламы — качество, формат, содержание, цена и сроки. */
+function AdsAdmin() {
+  const [rows, reload] = useLoad<any[]>('/admin/ads');
+  const decide = (id: number, action: string) => {
+    const reason = action === 'approve' ? undefined : ask('Причина (увидит партнёр)');
+    if (action !== 'approve' && !reason) return;
+    act(() => api(`/admin/ads/${id}/decide`, { body: { action, reason } }), reload);
+  };
+  return (
+    <T
+      rows={rows}
+      cols={[
+        ['#', (r) => r.id],
+        ['Креатив', (r) => <img src={r.image} alt="" style={{ height: 40 }} />],
+        ['Партнёр / текст', (r) => `${r.partner_name}: ${r.title}`],
+        ['Место', (r) => r.slot],
+        ['Период', (r) => `${String(r.starts_on).slice(0, 10)} — ${String(r.ends_on).slice(0, 10)}`],
+        ['Цена', (r) => fmtAmd(r.price)],
+        ['Ссылка', (r) => <a href={r.url} target="_blank" rel="noopener">{r.url}</a>],
+        ['Статус', (r) => `${r.status} · ${r.impressions}/${r.clicks}`],
+        [
+          '',
+          (r) => (
+            <div className="row gap-s">
+              {r.status === 'pending' && (
+                <>
+                  <button className="btn sm primary" onClick={() => decide(r.id, 'approve')}>
+                    Одобрить
+                  </button>
+                  <button className="btn sm" onClick={() => decide(r.id, 'reject')}>
+                    Вернуть
+                  </button>
+                </>
+              )}
+              {r.status === 'approved' && (
+                <button className="btn sm danger" onClick={() => decide(r.id, 'stop')}>
+                  Остановить
+                </button>
+              )}
+            </div>
+          ),
+        ],
+      ]}
+    />
   );
 }

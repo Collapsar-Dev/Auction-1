@@ -92,6 +92,10 @@ async function main() {
     { key: 'sona', phone: '+37491000009', name: 'Sona Harutyunyan', email: 'sona@example.am', kyc: true, card: '4111111111119999', plan: 'standard', lang: 'ru' },
     { key: 'tigran', phone: '+37491000010', name: 'Tigran Ghazaryan', email: 'tigran@example.am', kyc: true, card: '4111111111110010', plan: 'vip', lang: 'ru' },
     { key: 'ani', phone: '+37491000011', name: 'Ani Simonyan', email: 'ani+fail@example.am', kyc: true, card: '4111111111110011', plan: 'vip', lang: 'ru' },
+    // PRD v2 (F10): партнёры — у каждого свой кабинет
+    { key: 'notary', phone: '+37491000012', name: 'Armen Notaryan', email: 'notary@example.am', kyc: true, lang: 'ru' },
+    { key: 'insurer', phone: '+37491000013', name: 'Lusine Polisyan', email: 'insurer@example.am', kyc: true, lang: 'ru' },
+    { key: 'lawyer', phone: '+37491000014', name: 'Gevorg Iravyan', email: 'lawyer@example.am', kyc: true, lang: 'ru' },
   ];
   const U: Record<string, { id: number; cardId?: number; bindingId?: string; subId?: number }> = {};
   const versions: any = s.consent_versions;
@@ -379,6 +383,38 @@ async function main() {
   await app.get(require('../src/modules/seller/seller.service').SellerService).tick();
 
   await db.q(`UPDATE lots SET cadastre_check=$1 WHERE cadastre_check IS NULL`, [JSON.stringify({ found: true, ownerIsApplicant: true, ownerMatches: true, encumbrance: 'none', areaM2: null, checkedAt: new Date(now).toISOString() })]);
+  // PRD v2 (F10): партнёры с проверенной лицензией, реклама, заявка на страховку
+  const lic = storage.put(Buffer.from('%PDF-1.4 demo licence'), 'pdf', true);
+  const partnerRows: [string, string, string, string, string, string][] = [
+    ['notary', 'notary', 'Нотариальная контора «Демо»', 'Ереван, Кентрон', 'Договоры купли-продажи, регистрация в кадастре. Работает по субботам.', 'от 30 000 ֏'],
+    ['insurer', 'insurance', 'Страховая «Тест-Полис»', 'вся Армения', 'Страхование титула и имущества. Для тарифа Premium — скидка 10 %.', 'от 0,3 % стоимости'],
+    ['lawyer', 'lawyer', 'Юридическое бюро «Пример»', 'Ереван, Гюмри', 'Проверка документов и сопровождение сделки, сделки с ипотекой и совладельцами.', 'по договорённости'],
+  ];
+  const P: Record<string, number> = {};
+  for (const [k, kind, name, city, desc, price] of partnerRows) {
+    const r = await db.one<{ id: number }>(
+      `INSERT INTO partners(user_id, kind, name, city, description, price_from, license_no, license_key, status, verified_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,$9) RETURNING id`,
+      [U[k].id, kind, name, city, desc, price, 'LIC-' + kind.toUpperCase() + '-001', lic, at(-20 * DAY)],
+    );
+    P[k] = r.id;
+  }
+  const banner = (text: string, hue: number) =>
+    `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300"><rect width="1200" height="300" fill="hsl(${hue},70%,92%)"/><text x="40" y="170" font-family="Arial" font-size="56" fill="#2B1A14">${text}</text></svg>`;
+  const today = new Date(now).toISOString().slice(0, 10);
+  const plus = (d: number) => new Date(now + d * DAY).toISOString().slice(0, 10);
+  await db.q(
+    `INSERT INTO ad_requests(partner_id, slot, title, url, creative_key, starts_on, ends_on, price, status, decided_at, created_at) VALUES
+     ($1,'catalog','Проверка сделки за 24 часа — первая консультация бесплатно','https://example.am/lawyer',$2,$3,$4,120000,'approved',$5,$5),
+     ($6,'lot','Страхование титула за 1 день','https://example.am/insurance',$7,$3,$4,80000,'pending',NULL,$5)`,
+    [P.lawyer, storage.putNamed('public/seed/ad-lawyer.svg', banner('Юридическое бюро «Пример»', 30)), today, plus(30), at(-DAY), P.insurer, storage.putNamed('public/seed/ad-insurer.svg', banner('Страховая «Тест-Полис»', 120))],
+  );
+  await db.q(`INSERT INTO service_requests(partner_id, user_id, lot_id, service, comment, created_at, updated_at) VALUES ($1,$2,$3,'insurance_title','Нужен полис до подписания договора',$4,$4)`, [
+    P.insurer,
+    U.lilit.id,
+    L.finished_deal ?? null,
+    at(-3 * HOUR),
+  ]);
+
   await app.close();
 
   console.log('\n✔ Демо-данные загружены. Лоты:', L);
@@ -395,6 +431,7 @@ async function main() {
   +374 91 000009  Сона    — тариф Standard (10 участий), можно повысить до VIP
   +374 91 000010  Тигран  — блокировка ставок 30 дней (лестница мер)
   +374 91 000011  Ани     — email с «+fail»: письма не доставляются, видны повторы в админке
+  +374 91 000012–14       — партнёры: нотариус, страховая (новая заявка, реклама на модерации), юрист (реклама в каталоге)
 Сотрудники (/staff/login): admin / Admin123!   moderator / Moder123!   + код TOTP (смотрите /dev или добавьте секрет в Google Authenticator)
   TOTP admin:     ${ADMIN_TOTP_SECRET}
   TOTP moderator: ${MODER_TOTP_SECRET}

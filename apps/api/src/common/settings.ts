@@ -22,6 +22,9 @@ export const DEFAULT_SETTINGS = {
   outage_extend_hours: 24,
   otp_ttl_sec: 300, // AU-01
   otp_attempts: 5,
+  ad_price_catalog: 120_000, // PRD v2 (F10.3): цена рекламы за 30 дней по месту показа
+  ad_price_lot: 80_000,
+  ad_price_partners: 50_000,
   seller_plans_enabled: true, // PRD v2 решение 16: отправить лот на модерацию можно только с размещением по тарифу продавца
   seller_deposit_enabled: true, // PRD v2 решение 17: возвратный взнос продавца, блок с открытия регистрации
   seller_deposit_min: 100_000, // не меньше (процент — как у взноса участника)

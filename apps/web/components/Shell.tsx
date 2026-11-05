@@ -23,6 +23,7 @@ export function Header() {
         <nav className="main">
           <Link href="/">{t('nav_catalog')}</Link>
           {!me?.staff && <Link href="/sell">{t('nav_sell')}</Link>}
+          <Link href="/partners">{t('nav_partners')}</Link>
           <Link href="/rules">{t('nav_rules')}</Link>
           {me?.staff && <Link href="/admin">{t('nav_admin')}</Link>}
           {devTools && <Link href="/dev">{t('nav_dev')}</Link>}
