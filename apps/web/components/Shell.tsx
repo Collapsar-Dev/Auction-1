@@ -84,7 +84,7 @@ export function StatusBadge({ status }: { status: string }) {
 
 /** PRD v2 §2: статусы для покупателя, в порядке каталога, с цветной точкой. */
 export const STAGES = ['in_progress', 'registration_open', 'upcoming', 'awaiting_contract', 'finished', 'no_sale', 'cancelled'];
-const STAGE_DOT: Record<string, string> = {
+export const STAGE_DOT: Record<string, string> = {
   in_progress: '#8E1B3A',
   registration_open: '#1F7A4A',
   upcoming: '#F6A04D',

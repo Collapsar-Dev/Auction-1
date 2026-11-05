@@ -561,7 +561,7 @@ export class LotsService {
             ? 'l.start_price DESC'
             : `CASE WHEN l.closes_at > ${nowP} AND l.status IN ('scheduled','live') THEN 0 ELSE 1 END, CASE WHEN l.closes_at > ${nowP} THEN l.closes_at END ASC, l.closes_at DESC`;
     const rows = await this.db.q(
-      `SELECT l.*, p.property_type, p.region, p.settlement, p.street, p.area_m2, p.rooms,
+      `SELECT l.*, p.property_type, p.region, p.settlement, p.street, p.area_m2, p.rooms, p.geo_lat, p.geo_lng,
         (SELECT storage_key FROM property_media m WHERE m.property_id=p.id AND m.kind='photo' ORDER BY sort LIMIT 1) AS cover
        FROM lots l JOIN properties p ON p.id=l.property_id WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT 200`,
       params,
@@ -570,6 +570,7 @@ export class LotsService {
         ...this.lotPublicFields(r),
         property_type: r.property_type,
         region: r.region,
+        geo: r.geo_lat && r.geo_lng ? { lat: Number(r.geo_lat), lng: Number(r.geo_lng) } : null, // для карты каталога
         settlement: r.settlement,
         street: r.street,
         area_m2: r.area_m2,

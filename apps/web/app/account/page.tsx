@@ -32,6 +32,7 @@ function Account() {
   return (
     <>
       <h1>{t('nav_account')}</h1>
+      {!me.staff && <Summary />}
       <div className="tabs">
         {TABS.map((k) => (
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => router.push('/account?tab=' + k)}>
@@ -720,6 +721,50 @@ function SellerPlans() {
       )}
       {msg && <p className="notice">{msg}</p>}
       {stepUp.node}
+    </div>
+  );
+}
+
+/** Макет F2.1 / F6.1: сводка кабинета — проверка личности, тариф, счёт, тариф продавца. */
+function Summary() {
+  const { t, me } = useApp();
+  const [tries, setTries] = useState<any>(null);
+  const [acc, setAcc] = useState<any>(null);
+  const [seller, setSeller] = useState<any>(null);
+  useEffect(() => {
+    api('/subscriptions/participations').then(setTries).catch(() => {});
+    api('/me/account').then(setAcc).catch(() => {});
+    api('/me/seller').then(setSeller).catch(() => {});
+  }, []);
+  const sub = tries?.subscriptions?.[0];
+  const ss = seller?.subscriptions?.[0];
+  const kyc = me!.kycStatus;
+  return (
+    <div className="summary">
+      <Link href="/account?tab=profile">
+        <div className={'tile ' + (kyc === 'verified' ? '' : 'dark')}>
+          <span className="small">{t('sum_identity')}</span>
+          <b>{t('kyc_' + kyc)}</b>
+        </div>
+      </Link>
+      <Link href="/account?tab=access">
+        <div className="tile">
+          <span className="small muted">{t('sum_plan')}</span>
+          <b>{sub ? (sub.limit === null ? `${sub.plan.toUpperCase()} · ∞` : `${sub.plan.toUpperCase()} · ${sub.left}/${sub.limit}`) : t('sum_no_plan')}</b>
+        </div>
+      </Link>
+      <Link href="/account?tab=deposits">
+        <div className="tile">
+          <span className="small muted">{t('acc_blocked')}</span>
+          <b>{acc ? fmtAmd(acc.totals.blocked + acc.totals.releasing) : '…'}</b>
+        </div>
+      </Link>
+      <Link href="/account?tab=seller">
+        <div className="tile">
+          <span className="small muted">{t('tab_seller')}</span>
+          <b>{ss ? (ss.limit === null ? '∞' : `${ss.left}/${ss.limit}`) : t('sum_no_plan')}</b>
+        </div>
+      </Link>
     </div>
   );
 }

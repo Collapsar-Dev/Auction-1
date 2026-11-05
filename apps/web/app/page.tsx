@@ -7,6 +7,7 @@ import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
 import { StageBadge, STAGES } from '@/components/Shell';
 import { AdSlot } from '@/components/AdSlot';
+import { CatalogMap } from '@/components/CatalogMap';
 
 const REGIONS = ['Yerevan', 'Aragatsotn', 'Ararat', 'Armavir', 'Gegharkunik', 'Kotayk', 'Lori', 'Shirak', 'Syunik', 'Tavush', 'Vayots Dzor'];
 
@@ -14,6 +15,7 @@ export default function Catalog() {
   const { t, syncTime } = useApp();
   const [f, setF] = useState<Record<string, string>>({ sort: 'stage' });
   const [items, setItems] = useState<any[] | null>(null);
+  const [view, setView] = useState<'grid' | 'map'>('grid'); // макет AprCatalog: сетка / карта
   useEffect(() => {
     const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
     api('/lots?' + q).then((r) => {
@@ -103,10 +105,23 @@ export default function Catalog() {
           {t('reset')}
         </button>
       </div>
+      <div className="row between gap" style={{ marginBottom: 12 }}>
+        <span className="muted small">{items ? t('found_n', { n: items.length }) : ''}</span>
+        <div className="view-toggle">
+          <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')}>
+            {t('grid_view')}
+          </button>
+          <button className={view === 'map' ? 'on' : ''} onClick={() => setView('map')}>
+            {t('map_view')}
+          </button>
+        </div>
+      </div>
       {items === null ? (
         <p className="muted">{t('loading')}</p>
       ) : items.length === 0 ? (
         <p className="muted">{t('nothing_found')}</p>
+      ) : view === 'map' ? (
+        <CatalogMap items={items} />
       ) : (
         <div className="grid">
           {items.map((l) => (

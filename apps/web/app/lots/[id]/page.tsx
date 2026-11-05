@@ -8,6 +8,7 @@ import { fmtAmd, fmtDate } from '@/lib/format';
 import { Countdown } from '@/components/Countdown';
 import { StageBadge } from '@/components/Shell';
 import { AdSlot } from '@/components/AdSlot';
+import { LotTimeline } from '@/components/LotTimeline';
 import { BidBlock } from '@/components/BidBlock';
 import { ResultTable } from '@/components/ResultTable';
 import { VerifiedDocs, Valuations } from '@/components/LotExtras';
@@ -91,6 +92,7 @@ export default function LotPage() {
         <div className="muted">
           {t('region_' + p.region)}, {p.settlement}, {p.street} · #{lot.id}
         </div>
+        <LotTimeline lot={lot} />
         <div className="gallery">
           <div className="main-img" style={{ backgroundImage: d.photos[img] ? `url(${d.photos[img]})` : undefined }} />
           <div className="thumbs">
