@@ -22,6 +22,11 @@ export const DEFAULT_SETTINGS = {
   outage_extend_hours: 24,
   otp_ttl_sec: 300, // AU-01
   otp_attempts: 5,
+  password_min_length: 8, // PRD v2 решение 1: пароль — минимум 8 символов, буквы и цифры
+  login_max_attempts: 5, // неверный пароль N раз подряд → вход закрыт на login_lock_min минут
+  login_lock_min: 15,
+  email_code_ttl_min: 10, // код подтверждения email
+  reset_ttl_min: 30, // ссылка «забыли пароль»
   otp_resend_sec: 60,
   otp_daily_max: 10,
   stepup_ttl_sec: 300, // AU-03

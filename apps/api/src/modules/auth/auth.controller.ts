@@ -2,12 +2,40 @@ import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { AuthService, STEP_UP_ACTIONS } from './auth.service';
+import { PasswordAuthService } from './password.service';
 
 const fp = (req: Request) => ({ ua: String(req.headers['user-agent'] || ''), ip: req.ip || '' });
 
 @Controller('auth')
 export class AuthController {
-  constructor(private auth: AuthService) {}
+  constructor(private auth: AuthService, private pw: PasswordAuthService) {}
+
+  // PRD v2 решение 1: email или телефон + пароль
+  @Post('register')
+  register(@Body() b: any, @Req() req: Request) {
+    const v = z.object({ login: z.string(), password: z.string(), lang: z.string().optional(), acceptTerms: z.boolean().optional() }).parse(b);
+    return this.pw.register(v, fp(req).ip);
+  }
+  @Post('register/resend')
+  resend(@Body() b: any, @Req() req: Request) {
+    return this.pw.resend(z.object({ login: z.string() }).parse(b).login, fp(req).ip);
+  }
+  @Post('register/confirm')
+  confirm(@Body() b: any, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.pw.confirm(z.object({ login: z.string(), code: z.string() }).parse(b), fp(req).ua, res);
+  }
+  @Post('login')
+  login(@Body() b: any, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    return this.pw.login(z.object({ login: z.string(), password: z.string() }).parse(b), fp(req).ua, fp(req).ip, res);
+  }
+  @Post('password/forgot')
+  forgot(@Body() b: any, @Req() req: Request) {
+    return this.pw.forgot(z.object({ login: z.string() }).parse(b).login, fp(req).ip);
+  }
+  @Post('password/reset')
+  reset(@Body() b: any) {
+    return this.pw.reset(z.object({ token: z.string(), password: z.string() }).parse(b));
+  }
 
   @Post('otp')
   otp(@Body() b: any, @Req() req: Request) {

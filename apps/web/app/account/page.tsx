@@ -149,7 +149,8 @@ function Profile() {
         )}
       </div>
       <div className="card stack">
-        <h3>{t('phone_change')}</h3>
+        <h3>{me?.phone ? t('phone_change') : t('phone_add')}</h3>
+        {!me?.phone && <p className="small muted">{t('phone_add_hint')}</p>}
         {!codes ? (
           <div className="row gap">
             <input className="input" style={{ maxWidth: 220 }} placeholder="+374 …" value={phone} onChange={(e) => setPhone(e.target.value)} />
@@ -159,13 +160,14 @@ function Profile() {
           </div>
         ) : (
           <>
-            {codes.devCodeOld && (
+            {(codes.devCodeOld || codes.devCodeNew) && (
               <p className="dev-hint">
-                Dev: {codes.devCodeOld} / {codes.devCodeNew}
+                Dev: {codes.devCodeOld ? codes.devCodeOld + ' / ' : ''}
+                {codes.devCodeNew}
               </p>
             )}
             <div className="row gap">
-              <input className="input" style={{ maxWidth: 180 }} placeholder={t('code_old')} value={cOld} onChange={(e) => setCOld(e.target.value)} />
+              {me?.phone && <input className="input" style={{ maxWidth: 180 }} placeholder={t('code_old')} value={cOld} onChange={(e) => setCOld(e.target.value)} />}
               <input className="input" style={{ maxWidth: 180 }} placeholder={t('code_new')} value={cNew} onChange={(e) => setCNew(e.target.value)} />
               <button className="btn primary" onClick={phoneConfirm}>
                 {t('confirm')}

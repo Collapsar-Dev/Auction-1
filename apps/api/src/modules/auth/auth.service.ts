@@ -62,7 +62,7 @@ export class AuthService {
   }
 
   // ---------- SMS-коды (AU-01) ----------
-  async sendCode(phoneRaw: string, purpose: 'login' | 'step_up' | 'phone_old' | 'phone_new', action: string | null, userId: number | null, ip = '') {
+  async sendCode(phoneRaw: string, purpose: 'login' | 'step_up' | 'phone_old' | 'phone_new' | 'register', action: string | null, userId: number | null, ip = '') {
     const phone = normalizePhone(phoneRaw);
     rateLimit('otp-ip:' + ip, 20, 10 * 60_000);
     const s = await this.settings.all();
@@ -82,9 +82,9 @@ export class AuthService {
       new Date(now.getTime() + s.otp_ttl_sec * 1000),
       now,
     ]);
-    const tpl = purpose === 'login' ? 'otp_login' : purpose === 'step_up' ? 'otp_step_up' : 'phone_change_code';
+    const tpl = purpose === 'login' ? 'otp_login' : purpose === 'register' ? 'register_code' : purpose === 'step_up' ? 'otp_step_up' : 'phone_change_code';
     const known = userId ?? (await this.db.maybe<{ id: number }>('SELECT id FROM users WHERE phone=$1', [phone]))?.id ?? null;
-    await this.notify.queue(known, 'sms', tpl, { code, action }, { toAddr: phone });
+    await this.notify.queue(known, 'sms', tpl, { code, action, minutes: Math.round(s.otp_ttl_sec / 60) }, { toAddr: phone });
     return { phone, expiresInSec: s.otp_ttl_sec, resendInSec: s.otp_resend_sec, ...(this.devCodes() ? { devCode: code } : {}) };
   }
 
@@ -118,6 +118,7 @@ export class AuthService {
       await this.audit.log(user.id, 'user.register', 'user', user.id);
     }
     if (user.status === 'blocked') fail('USER_BLOCKED', 403);
+    if (!(user as any).phone_verified_at) await this.db.q('UPDATE users SET phone_verified_at=$2 WHERE id=$1', [user.id, this.clock.now()]); // SMS-код подтверждает телефон
     await this.createSession(user.id, 'user', device, res);
     return { isNew, needsConsents: await this.missingConsents(user.id) };
   }
@@ -252,9 +253,11 @@ export class AuthService {
   async stepUpRequest(user: User, action: StepUpAction, ip: string) {
     if (!STEP_UP_ACTIONS.includes(action)) fail('STEP_UP_ACTION_UNKNOWN');
     rateLimit('stepup:' + user.id, 10, 10 * 60_000);
+    if (!user.phone) fail('PHONE_REQUIRED', 403); // вошёл по email — для подтверждений нужен телефон (профиль → добавить)
     return this.sendCode(user.phone!, 'step_up', action, user.id, ip);
   }
   async stepUpVerify(user: User, action: StepUpAction, code: string) {
+    if (!user.phone) fail('PHONE_REQUIRED', 403);
     await this.checkCode(user.phone!, 'step_up', code, action);
     const token = randomToken();
     const ttl = await this.settings.get('stepup_ttl_sec');
@@ -290,15 +293,20 @@ export class AuthService {
   async phoneChangeStart(user: User, newPhoneRaw: string, ip: string) {
     const newPhone = normalizePhone(newPhoneRaw);
     if (await this.db.maybe('SELECT 1 FROM users WHERE phone=$1', [newPhone])) fail('PHONE_TAKEN');
+    if (!user.phone) {
+      // PRD v2: зарегистрировался по email — телефон добавляется одним кодом на новый номер
+      const b = await this.sendCode(newPhone, 'phone_new', newPhone, user.id, ip);
+      return { ...(b.devCode ? { devCodeNew: b.devCode } : {}) };
+    }
     const a = await this.sendCode(user.phone!, 'phone_old', newPhone, user.id, ip);
     const b = await this.sendCode(newPhone, 'phone_new', newPhone, user.id, ip);
     return { ...(a.devCode ? { devCodeOld: a.devCode, devCodeNew: b.devCode } : {}) };
   }
   async phoneChangeConfirm(user: User, newPhoneRaw: string, codeOld: string, codeNew: string) {
     const newPhone = normalizePhone(newPhoneRaw);
-    await this.checkCode(user.phone!, 'phone_old', codeOld, newPhone);
+    if (user.phone) await this.checkCode(user.phone, 'phone_old', codeOld, newPhone);
     await this.checkCode(newPhone, 'phone_new', codeNew, newPhone);
-    await this.db.q('UPDATE users SET phone=$2, phone_changed_at=$3 WHERE id=$1', [user.id, newPhone, this.clock.now()]);
+    await this.db.q('UPDATE users SET phone=$2, phone_changed_at=$3, phone_verified_at=$3 WHERE id=$1', [user.id, newPhone, this.clock.now()]);
     await this.audit.log(user.id, 'user.phone_changed', 'user', user.id, { phone: user.phone }, { phone: newPhone });
     return { ok: true };
   }

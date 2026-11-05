@@ -108,7 +108,7 @@ export class MeController {
   @Post('phone/confirm')
   async phoneConfirm(@Body() b: any, @Req() req: Request) {
     const u = await this.auth.user(req);
-    const v = z.object({ phone: z.string(), codeOld: z.string(), codeNew: z.string() }).parse(b);
+    const v = z.object({ phone: z.string(), codeOld: z.string().default(''), codeNew: z.string() }).parse(b); // codeOld не нужен, если телефона ещё не было
     return this.auth.phoneChangeConfirm(u, v.phone, v.codeOld, v.codeNew);
   }
 

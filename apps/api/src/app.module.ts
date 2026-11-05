@@ -18,6 +18,7 @@ import { KycService } from './modules/kyc/kyc.service';
 import { CardsService } from './modules/cards/cards.service';
 import { AccountController } from './modules/cards/cards.controller';
 import { PlansService } from './modules/plans/plans.service';
+import { PasswordAuthService } from './modules/auth/password.service';
 import { EligibilityService } from './modules/lots/eligibility.service';
 import { LotsService } from './modules/lots/lots.service';
 import { LotsController } from './modules/lots/lots.controller';
@@ -57,6 +58,7 @@ import { FilesController } from './modules/files/files.controller';
     KycService,
     CardsService,
     PlansService,
+    PasswordAuthService,
     EligibilityService,
     LotsService,
     DepositsService,

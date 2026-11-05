@@ -8,6 +8,16 @@ type Tpl = Record<Lang, T>;
  * Правило SC-20: до конца аукциона ни один шаблон не содержит данных о чужих ставках и их числе.
  */
 export const TEMPLATES: Record<string, Tpl> = {
+  register_code: {
+    hy: { s: 'Հաստատման կոդ', b: 'Հաստատման կոդ՝ {code}։ Գործում է {minutes} րոպե։' },
+    ru: { s: 'Код подтверждения', b: 'Код подтверждения: {code}. Действует {minutes} минут.' },
+    en: { s: 'Confirmation code', b: 'Confirmation code: {code}. Valid for {minutes} minutes.' },
+  },
+  password_reset: {
+    hy: { s: 'Գաղտնաբառի վերականգնում', b: 'Նոր գաղտնաբառ սահմանելու հղումը գործում է {minutes} րոպե և միայն մեկ անգամ՝ {link}։ Եթե դուք չեք խնդրել, անտեսեք այս նամակը։' },
+    ru: { s: 'Сброс пароля', b: 'Ссылка для нового пароля действует {minutes} минут и работает один раз: {link}. Если вы не запрашивали сброс — просто проигнорируйте письмо.' },
+    en: { s: 'Password reset', b: 'The link to set a new password is valid for {minutes} minutes and works once: {link}. If you did not ask for it, ignore this message.' },
+  },
   otp_login: {
     hy: { b: 'Մուտքի կոդ՝ {code}։ Գործում է 5 րոպե։' },
     ru: { b: 'Код входа: {code}. Действует 5 минут.' },
