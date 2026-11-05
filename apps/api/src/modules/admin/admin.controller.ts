@@ -61,6 +61,11 @@ export class AdminController {
   }
 
   // Пользователи
+  @Get('kyc')
+  async kycQueue(@Req() r: Request) {
+    await this.auth.staff(r);
+    return this.admin.kycQueue();
+  }
   @Get('users')
   async users(@Req() r: Request, @Query('q') q?: string) {
     await this.auth.staff(r);

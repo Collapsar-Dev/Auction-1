@@ -64,11 +64,16 @@ export default function AdminUser() {
               Разблокировать как продавца
             </button>
           )}
-          {u.kyc_status === 'manual' && (
-            <button className="btn primary" onClick={() => run(`/admin/users/${id}/kyc`, { approve: true })}>
-              Подтвердить KYC
-            </button>
-          )}
+        </div>
+      )}
+      {u.kyc_status === 'manual' && (
+        <div className="card row gap">
+          <button className="btn primary" onClick={() => run(`/admin/users/${id}/kyc`, { approve: true })}>
+            Подтвердить KYC
+          </button>
+          <button className="btn danger" onClick={() => run(`/admin/users/${id}/kyc`, { approve: false, reason: window.prompt('Причина (увидит пользователь)') || '' })}>
+            Отклонить / вернуть
+          </button>
         </div>
       )}
       <Block title="Годовой доступ" rows={d.subscriptions} cols={['code', 'source', 'price_paid', 'starts_at', 'ends_at', 'status']} />

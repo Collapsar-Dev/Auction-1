@@ -78,6 +78,15 @@ export class AdminService {
     };
   }
 
+  /** PRD v2 решение 2 (F11.1): очередь «проверка личности» — заключение KYC-сервиса, решение за модератором. */
+  kycQueue() {
+    return this.db.q(
+      `SELECT id, phone, email, created_at, kyc_pending->>'fullName' AS full_name, kyc_pending->>'birthDate' AS birth_date,
+              coalesce(kyc_pending->>'provider', 'manual') AS provider, kyc_pending->>'submittedAt' AS submitted_at
+       FROM users WHERE kyc_status='manual' ORDER BY coalesce(kyc_pending->>'submittedAt', created_at::text) LIMIT 300`,
+    );
+  }
+
   async users(q?: string) {
     return this.db.q(
       `SELECT id, phone, email, full_name, role, status, kyc_status, seller_blocked, created_at FROM users
@@ -124,7 +133,11 @@ export class AdminService {
   async kycManual(staff: User, id: number, body: { approve: boolean; fullName?: string; birthDate?: string; docNumber?: string; reason?: string }) {
     const u = await this.db.maybe('SELECT * FROM users WHERE id=$1', [id]);
     if (!u) fail('NOT_FOUND', 404);
-    if (!body.approve) return this.kyc.reject(u, body.reason || 'MANUAL_REJECT');
+    // PRD v2: отказ или возврат на исправление — только с причиной, её видит пользователь
+    if (!body.approve) {
+      if (!body.reason || body.reason.trim().length < 3) fail('REASON_REQUIRED');
+      return this.kyc.reject(u, body.reason!.trim(), staff.id);
+    }
     const pending = u.kyc_pending || {};
     const docHash = body.docNumber ? KycService.docHash(body.docNumber) : pending.docHash;
     if (!docHash) fail('DOC_REQUIRED');

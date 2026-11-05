@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
   outage_extend_hours: 24,
   otp_ttl_sec: 300, // AU-01
   otp_attempts: 5,
+  kyc_require_moderator: true, // PRD v2 решение 2: заключение KYC-сервиса → решение модератора (false = как в v1, сразу «проверен»)
   password_min_length: 8, // PRD v2 решение 1: пароль — минимум 8 символов, буквы и цифры
   login_max_attempts: 5, // неверный пароль N раз подряд → вход закрыт на login_lock_min минут
   login_lock_min: 15,

@@ -153,7 +153,15 @@ describe('SC-02 Проверка личности', () => {
     const noConsent = await u.agent.post('/api/kyc/session').send({});
     expect(noConsent.body.error).toBe('CONSENT_REQUIRED');
     const sid = await startKyc(u.agent);
-    await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid, decision: 'approved', fullName: 'Aram Test', birthDate: '1990-05-05', docNumber: 'AN1234567' }).expect(201);
+    const r = await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid, decision: 'approved', fullName: 'Aram Test', birthDate: '1990-05-05', docNumber: 'AN1234567' }).expect(201);
+    // PRD v2 решение 2: заключение KYC-сервиса → очередь модератора
+    expect(r.body).toEqual({ status: 'manual' });
+    expect((await u.agent.get('/api/me')).body.kycStatus).toBe('manual');
+    expect((await h.outbox(u.id, 'kyc_in_review')).length).toBe(1);
+    const adm = await h.staff();
+    const queue = (await adm.get('/api/admin/kyc').expect(200)).body;
+    expect(queue.find((x: any) => x.id === u.id)).toMatchObject({ full_name: 'Aram Test', provider: 'approved' });
+    await adm.post(`/api/admin/users/${u.id}/kyc`).send({ approve: true }).expect(201);
     const me = await u.agent.get('/api/me');
     expect(me.body.kycStatus).toBe('verified');
     expect(me.body.level).toBe(2);
@@ -169,5 +177,33 @@ describe('SC-02 Проверка личности', () => {
     const sid2 = await startKyc(twin.agent);
     const r2 = await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid2, decision: 'approved', fullName: 'Twin', birthDate: '1990-01-01', docNumber: 'AN 1234567' });
     expect(r2.body.reason).toBe('DOC_ALREADY_USED');
+  });
+  it('PRD v2: модератор отклоняет или возвращает только с причиной; пользователь видит причину и проходит заново', async () => {
+    const u = await h.user({ kyc: false });
+    const sid = await startKyc(u.agent);
+    await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid, decision: 'approved', fullName: 'Ani Test', birthDate: '1991-02-02', docNumber: 'AN5550001' }).expect(201);
+    const adm = await h.staff();
+    expect((await adm.post(`/api/admin/users/${u.id}/kyc`).send({ approve: false })).body.error).toBe('REASON_REQUIRED');
+    await adm.post(`/api/admin/users/${u.id}/kyc`).send({ approve: false, reason: 'Фото паспорта размыто, номер не читается' }).expect(201);
+    const me = (await u.agent.get('/api/me')).body;
+    expect(me).toMatchObject({ kycStatus: 'rejected', kycRejectReason: 'Фото паспорта размыто, номер не читается' });
+    const log = await h.db.one(`SELECT actor_id FROM audit_log WHERE action='kyc.rejected' AND entity_id=$1 ORDER BY id DESC LIMIT 1`, [String(u.id)]);
+    expect(Number(log.actor_id)).not.toBe(u.id); // в журнале — модератор
+    // исправил и прошёл заново
+    const sid2 = await startKyc(u.agent);
+    await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid2, decision: 'approved', fullName: 'Ani Test', birthDate: '1991-02-02', docNumber: 'AN5550001' }).expect(201);
+    expect((await u.agent.get('/api/me')).body.kycStatus).toBe('manual');
+  });
+  it('настройка kyc_require_moderator = false — как в v1: сразу «проверен»', async () => {
+    const { SettingsService } = await import('../src/common/settings');
+    await h.get(SettingsService).set('kyc_require_moderator', false, null);
+    try {
+      const u = await h.user({ kyc: false });
+      const sid = await startKyc(u.agent);
+      const r = await request(h.http).post('/api/sandbox/kyc/complete').send({ sessionId: sid, decision: 'approved', fullName: 'Auto Test', birthDate: '1990-03-03', docNumber: 'AN5550002' });
+      expect(r.body).toEqual({ status: 'verified' });
+    } finally {
+      await h.get(SettingsService).set('kyc_require_moderator', true, null);
+    }
   });
 });

@@ -170,23 +170,36 @@ function Users() {
   );
 }
 
+/** PRD v2 решение 2 (F11.1): заключение KYC-сервиса → решение модератора; отказ и возврат — только с причиной. */
 function KycManual() {
-  const [rows, reload] = useLoad<any[]>('/admin/users');
-  const list = (rows || []).filter?.((u: any) => u.kyc_status === 'manual') ?? null;
+  const [rows, reload] = useLoad<any[]>('/admin/kyc');
+  const decide = (id: number, approve: boolean, prefix = '') => {
+    if (approve) return act(() => api(`/admin/users/${id}/kyc`, { body: { approve: true } }), reload);
+    const reason = ask(prefix ? 'Что исправить (увидит пользователь)' : 'Причина отказа (увидит пользователь)');
+    if (!reason) return;
+    act(() => api(`/admin/users/${id}/kyc`, { body: { approve: false, reason: prefix + reason } }), reload);
+  };
   return (
     <T
-      rows={rows ? list : null}
+      rows={rows}
       cols={[
         ['#', (r) => <Link href={`/admin/users/${r.id}`}>#{r.id}</Link>],
-        ['Телефон', (r) => r.phone],
+        ['Контакт', (r) => r.phone || r.email],
+        ['ФИО', (r) => r.full_name || '—'],
+        ['Дата рождения', (r) => r.birth_date || '—'],
+        ['KYC-сервис', (r) => <b className={r.provider === 'approved' ? '' : 'error'}>{r.provider === 'approved' ? '✓ совпало' : 'сомнение'}</b>],
+        ['Подано', (r) => fmtDate(r.submitted_at || r.created_at)],
         [
           '',
           (r) => (
             <div className="row gap-s">
-              <button className="btn sm primary" onClick={() => act(() => api(`/admin/users/${r.id}/kyc`, { body: { approve: true } }), reload)}>
+              <button className="btn sm primary" onClick={() => decide(r.id, true)}>
                 Подтвердить
               </button>
-              <button className="btn sm danger" onClick={() => act(() => api(`/admin/users/${r.id}/kyc`, { body: { approve: false, reason: ask('Причина отказа') } }), reload)}>
+              <button className="btn sm" onClick={() => decide(r.id, false, 'Исправьте: ')}>
+                Вернуть на исправление
+              </button>
+              <button className="btn sm danger" onClick={() => decide(r.id, false)}>
                 Отклонить
               </button>
             </div>

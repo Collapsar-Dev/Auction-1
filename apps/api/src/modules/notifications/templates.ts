@@ -8,6 +8,11 @@ type Tpl = Record<Lang, T>;
  * Правило SC-20: до конца аукциона ни один шаблон не содержит данных о чужих ставках и их числе.
  */
 export const TEMPLATES: Record<string, Tpl> = {
+  kyc_in_review: {
+    hy: { s: 'Ձեր փաստաթղթերը ստուգվում են', b: 'KYC ծառայությունն ավարտեց ստուգումը։ Այժմ որոշումը կայացնում է մոդերատորը՝ սովորաբար մինչև 24 ժամ։' },
+    ru: { s: 'Документы на проверке', b: 'KYC-сервис закончил проверку. Теперь решение принимает модератор — обычно до 24 часов.' },
+    en: { s: 'Documents under review', b: 'The KYC service has finished. A moderator now makes the decision — usually within 24 hours.' },
+  },
   register_code: {
     hy: { s: 'Հաստատման կոդ', b: 'Հաստատման կոդ՝ {code}։ Գործում է {minutes} րոպե։' },
     ru: { s: 'Код подтверждения', b: 'Код подтверждения: {code}. Действует {minutes} минут.' },
