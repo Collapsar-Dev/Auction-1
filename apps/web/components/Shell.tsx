@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useApp } from '@/lib/ctx';
 import { api } from '@/lib/api';
 import { Lang } from '@/lib/format';
@@ -8,6 +9,9 @@ import { Lang } from '@/lib/format';
 export function Header() {
   const { t, lang, setLang, me, reloadMe, devTools } = useApp();
   const router = useRouter();
+  const path = usePathname();
+  const [open, setOpen] = useState(false); // мобильное меню ☰
+  useEffect(() => setOpen(false), [path]);
   const logout = async () => {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     await reloadMe();
@@ -23,7 +27,10 @@ export function Header() {
             <span>·{t('brand').split('·')[1]}</span>
           </span>
         </Link>
-        <nav className="main">
+        <button className="menu-btn" aria-label={t('menu')} aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? '✕' : '☰'}
+        </button>
+        <nav className={'main' + (open ? ' open' : '')}>
           <Link href="/">{t('nav_catalog')}</Link>
           {!me?.staff && <Link href="/sell">{t('nav_sell')}</Link>}
           <Link href="/partners">{t('nav_partners')}</Link>
@@ -31,7 +38,7 @@ export function Header() {
           {me?.staff && <Link href="/admin">{t('nav_admin')}</Link>}
           {devTools && <Link href="/dev">{t('nav_dev')}</Link>}
         </nav>
-        <div className="langs">
+        <div className={'langs' + (open ? ' open' : '')}>
           {(['hy', 'ru', 'en'] as Lang[]).map((l) => (
             <button key={l} className={lang === l ? 'on' : ''} onClick={() => setLang(l)}>
               {l.toUpperCase()}
@@ -39,7 +46,7 @@ export function Header() {
           ))}
         </div>
         {me ? (
-          <div className="row gap-s">
+          <div className={'row gap-s user-btns' + (open ? ' open' : '')}>
             {!me.staff && (
               <Link className="btn sm" href="/account">
                 {t('nav_account')}
@@ -50,7 +57,7 @@ export function Header() {
             </button>
           </div>
         ) : (
-          <Link className="btn sm primary" href="/login">
+          <Link className="btn sm primary login-btn" href="/login">
             {t('nav_login')}
           </Link>
         )}

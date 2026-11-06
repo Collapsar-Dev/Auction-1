@@ -16,6 +16,7 @@ export default function Catalog() {
   const [f, setF] = useState<Record<string, string>>({ sort: 'stage' });
   const [items, setItems] = useState<any[] | null>(null);
   const [view, setView] = useState<'grid' | 'map'>('grid'); // макет AprCatalog: сетка / карта
+  const [showF, setShowF] = useState(false); // на телефоне фильтры свёрнуты
   useEffect(() => {
     const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
     api('/lots?' + q).then((r) => {
@@ -32,7 +33,10 @@ export default function Catalog() {
         <p>{t('hero_text')}</p>
       </section>
       <AdSlot slot="catalog" />
-      <div className="filters">
+      <button className="btn filters-toggle" onClick={() => setShowF(!showF)}>
+        {t('filters')} {Object.keys(f).filter((k) => k !== 'sort' && f[k]).length ? `· ${Object.keys(f).filter((k) => k !== 'sort' && f[k]).length}` : ''} {showF ? '▲' : '▼'}
+      </button>
+      <div className={'filters' + (showF ? '' : ' collapsed')}>
         <label className="f">
           {t('f_type')}
           <select className="input" value={f.type || ''} onChange={set('type')}>

@@ -335,16 +335,16 @@ function List({ rows, cols }: { rows: any[] | null; cols: [string, (r: any) => a
       <table className="t">
         <thead>
           <tr>
-            {cols.map(([h]) => (
-              <th key={h}>{h}</th>
+            {cols.map(([h], i) => (
+              <th key={i}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              {cols.map(([h, f]) => (
-                <td key={h}>{f(r)}</td>
+              {cols.map(([, f], j) => (
+                <td key={j}>{f(r)}</td>
               ))}
             </tr>
           ))}

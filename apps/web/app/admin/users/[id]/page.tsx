@@ -93,6 +93,7 @@ function Block({ title, rows, cols }: { title: string; rows: any[]; cols: string
       {!rows.length ? (
         <p className="muted small">—</p>
       ) : (
+        <div className="table-wrap">
         <table className="t">
           <thead>
             <tr>
@@ -111,6 +112,7 @@ function Block({ title, rows, cols }: { title: string; rows: any[]; cols: string
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

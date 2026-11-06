@@ -8,3 +8,4 @@ apps/api/.test-storage/
 .env
 .env.local
 .DS_Store
+audit_*/

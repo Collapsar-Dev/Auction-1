@@ -68,8 +68,8 @@ export function ResultTable({ result, lotId, reload }: { result: any; lotId: num
                 <tr key={b.bidId} className={(b.isMe ? 'me ' : '') + (b.isWinner ? 'win' : '')}>
                   <td>{b.place}</td>
                   <td>{b.userId ? <span className="uid">ID {b.userId}</span> : `${t('participant')} ${b.label}`}</td>
-                  <td>{fmtAmd(b.amount)}</td>
-                  <td className="small">{fmtDate(b.at, { ms: true })}</td>
+                  <td className="num">{fmtAmd(b.amount)}</td>
+                  <td className="small num">{fmtDate(b.at, { ms: true })}</td>
                   <td className="small">
                     {b.isWinner && <span className="badge finished">{t('winner')}</span>} {b.isBuyer && !b.isWinner && <span className="badge live">{t('buyer_now')}</span>} {b.isMe && <span className="badge revealing">{t('this_is_you')}</span>}{' '}
                     {b.bidId in checks && <span className={checks[b.bidId] ? 'ok' : 'error'}>{checks[b.bidId] ? '✓' : '✗'}</span>}
