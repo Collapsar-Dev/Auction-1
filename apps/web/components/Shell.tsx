@@ -92,13 +92,13 @@ export function StatusBadge({ status }: { status: string }) {
 /** PRD v2 §2: статусы для покупателя, в порядке каталога, с цветной точкой. */
 export const STAGES = ['in_progress', 'registration_open', 'upcoming', 'awaiting_contract', 'finished', 'no_sale', 'cancelled'];
 export const STAGE_DOT: Record<string, string> = {
-  in_progress: '#8E1B3A',
-  registration_open: '#1F7A4A',
-  upcoming: '#F6A04D',
-  awaiting_contract: '#6A4BC4',
-  finished: '#6B4A3A',
+  in_progress: '#C2410C',
+  registration_open: '#146C2E',
+  upcoming: '#D9A441',
+  awaiting_contract: '#7E22CE',
+  finished: '#5B5B66',
   no_sale: '#A08C80',
-  cancelled: '#B3261E',
+  cancelled: '#B91C1C',
 };
 export function StageBadge({ stage }: { stage: string }) {
   const { t } = useApp();

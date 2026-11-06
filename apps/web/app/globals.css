@@ -1,57 +1,63 @@
 :root {
-  /* Дизайн «Абрикос» (канвас: страница apricot / v2, бренд-бук Identity) */
-  --bg: #fff7ef;
+  /* Палитра варианта 8.2 «Поиск на первом экране» (канвас, страница «Все варианты») */
+  --bg: #f7f7f9;
   --surface: #ffffff;
-  --surface-2: #fff1e3;
-  --text: #2b1a14;
-  --muted: #6b4a3a;
-  --line: #f1decc;
-  --brand: #8e1b3a;        /* гранат — главные действия */
+  --surface-2: #f0f0f3;
+  --text: #16161d;
+  --muted: #5b5b66;
+  --line: #e5e7eb;
+  --brand: #c2410c;        /* жжёно-оранжевый — главные действия */
   --brand-ink: #ffffff;
-  --brand-soft: #fbe8ec;
-  --accent: #f6a04d;       /* абрикос — акценты, логотип */
-  --accent-soft: #ffe7cc;
-  --ok: #1f7a4a;
-  --ok-soft: #e3f5ea;
-  --warn: #8a5a00;
-  --warn-soft: #fff4d6;
-  --bad: #b3261e;
-  --bad-soft: #fbe3e1;
-  --info: #6a4bc4;
-  --info-soft: #efeafb;
-  --radius: 22px;
+  --brand-soft: #fff1ea;
+  --accent: #f4c27a;       /* тёплое солнце на первом экране */
+  --accent-soft: #fff1ea;
+  --hero: #22303f;         /* тёмно-синий первый экран */
+  --hero-2: #2f4255;
+  --hero-3: #3a4c5f;
+  --ok: #146c2e;
+  --ok-soft: #e3f3e6;
+  --warn: #9a3412;
+  --warn-soft: #fff1e6;
+  --bad: #b91c1c;
+  --bad-soft: #fde8e8;
+  --info: #7e22ce;
+  --info-soft: #f3e8ff;
+  --radius: 20px;
   --radius-s: 14px;
-  --shadow: 0 1px 2px rgba(43, 26, 20, 0.04), 0 8px 24px rgba(43, 26, 20, 0.06);
+  --shadow: 0 2px 10px rgba(22, 22, 29, 0.06);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1b1310;
-    --surface: #251a16;
-    --surface-2: #30221c;
-    --text: #fff1e3;
-    --muted: #c7a993;
-    --line: #3d2c24;
-    --brand: #e0577a;
-    --brand-ink: #1b1310;
-    --brand-soft: #3d1c26;
-    --accent: #f6a04d;
-    --accent-soft: #3d2a17;
-    --ok: #6fca93;
-    --ok-soft: #1d3326;
-    --warn: #e9c26a;
-    --warn-soft: #3a3019;
-    --bad: #f08a83;
-    --bad-soft: #3d2120;
-    --info: #b9a5f2;
-    --info-soft: #2a2340;
+    --bg: #10161d;
+    --surface: #18212b;
+    --surface-2: #212c38;
+    --text: #f1f2f5;
+    --muted: #a3a9b5;
+    --line: #2c3845;
+    --brand: #f97316;
+    --brand-ink: #10161d;
+    --brand-soft: #3a2014;
+    --accent: #f4c27a;
+    --accent-soft: #33261a;
+    --hero: #0d141b;
+    --hero-2: #17222d;
+    --hero-3: #1f2c39;
+    --ok: #5fd08a;
+    --ok-soft: #173023;
+    --warn: #fdba74;
+    --warn-soft: #3a2a17;
+    --bad: #f87171;
+    --bad-soft: #3b1d1d;
+    --info: #c4a5f5;
+    --info-soft: #2a2140;
     --shadow: none;
     color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body { overflow-wrap: break-word; background: var(--bg); color: var(--text); font: 15px/1.55 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Armenian', sans-serif; }
+body { overflow-wrap: break-word; background: var(--bg); color: var(--text); font: 15px/1.55 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans Armenian', sans-serif; }
 a { color: var(--brand); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3 { line-height: 1.2; margin: 0 0 12px; font-weight: 800; letter-spacing: -0.3px; }
@@ -204,7 +210,7 @@ pre.body { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit;
 
 /* «Абрикос»: подвал тёмный, как в макете */
 footer.bottom { background: var(--text); color: var(--surface-2); border-top: 0; padding: 32px 0; margin-top: 24px; }
-footer.bottom a { color: var(--accent); }
+footer.bottom a { color: #fdba74; }
 @media (prefers-color-scheme: dark) { footer.bottom { background: #120c0a; } }
 .lot-tile .img { border-bottom: 1px solid var(--line); }
 @media (max-width: 640px) {
@@ -254,4 +260,31 @@ table.t td.num { white-space: nowrap; }
   .summary .tile b { font-size: 16px; }
   .filters.collapsed { display: none; }
   .btn.filters-toggle { display: inline-flex; }
+}
+
+/* Вариант 8: поиск на первом экране (в стиле «Абрикос») */
+.search-hero { position: relative; overflow: hidden; border-radius: 24px; margin-bottom: 22px; background: var(--hero); color: #ffffff; }
+.search-hero .sh-art { position: absolute; inset: auto 0 0 0; width: 100%; height: 100%; }
+.search-hero .sh-body { position: relative; padding: 40px 36px 34px; display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+.search-hero h1 { font-size: 46px; line-height: 1.05; letter-spacing: -1.2px; margin: 0; }
+.search-hero p { margin: 0; color: #e5e7eb; max-width: 640px; }
+.sh-live { align-self: flex-start; color: var(--text); background: var(--surface); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 800; }
+.sh-form { display: flex; gap: 6px; color: var(--text); background: var(--surface); border-radius: 22px; padding: 8px; box-shadow: 0 18px 50px rgba(43, 26, 20, 0.14); align-items: stretch; }
+.sh-form label { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 14px; font-size: 12px; font-weight: 800; color: var(--muted); border-right: 1px solid var(--line); }
+.sh-form label:first-child { flex-grow: 1.6; }
+.sh-form select { border: 0; outline: 0; background: transparent; font: inherit; font-size: 16px; font-weight: 700; color: var(--text); padding: 2px 0; min-width: 0; }
+.sh-form .btn { border-radius: 16px; padding: 0 26px; font-size: 16px; white-space: nowrap; }
+.sh-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.sh-chips button { background: transparent; border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 999px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 700; color: #ffffff; cursor: pointer; }
+.sh-chips button.on { background: #ffffff; color: #16161d; border-color: #ffffff; }
+@media (max-width: 760px) {
+  .search-hero { border-radius: 22px; }
+  .search-hero .sh-body { padding: 24px 16px 20px; }
+  .search-hero h1 { font-size: 28px; letter-spacing: -0.5px; }
+  .search-hero .sh-art { opacity: .8; }
+  .sh-form { flex-direction: column; padding: 6px; }
+  .sh-form label { border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 12px; }
+  .sh-form .btn { min-height: 50px; }
+  .sh-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .sh-chips button { flex: none; }
 }
